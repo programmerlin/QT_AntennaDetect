@@ -1,0 +1,2 @@
+/home/topeet/Linux_SDK/linux_sdk/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-ar qc libUSB_HikCamera_lib.a CMakeFiles/USB_HikCamera_lib.dir/src/HikCamera.cpp.o
+/home/topeet/Linux_SDK/linux_sdk/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-ranlib libUSB_HikCamera_lib.a

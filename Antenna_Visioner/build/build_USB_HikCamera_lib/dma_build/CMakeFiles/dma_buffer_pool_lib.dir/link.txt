@@ -1,0 +1,2 @@
+/home/topeet/Linux_SDK/linux_sdk/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-ar qc libdma_buffer_pool_lib.a CMakeFiles/dma_buffer_pool_lib.dir/src/dma_buffer_pool.cpp.o allocator.out/CMakeFiles/allocator_obj.dir/dma_alloc.cpp.o
+/home/topeet/Linux_SDK/linux_sdk/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-ranlib libdma_buffer_pool_lib.a

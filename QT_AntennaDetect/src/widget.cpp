@@ -1,0 +1,446 @@
+#include "widget.h"
+#include "ui_widget.h"
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPixmap>
+#include <QFileInfo>
+#include <QDebug>
+#include <QElapsedTimer>
+
+Widget::Widget(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::Widget),
+    imageLoaded(false),
+    brightnessValue(0),
+    contrastValue(0)
+{
+    ui->setupUi(this);
+
+    // 设置初始状态
+    ui->stopBtn->setEnabled(false);
+    ui->saveImageBtn->setEnabled(false);
+    ui->processImageBtn->setEnabled(false);
+
+    // 连接按钮信号
+    connect(ui->startBtn, &QPushButton::clicked, this, &Widget::on_startBtn_clicked);
+    connect(ui->stopBtn, &QPushButton::clicked, this, &Widget::on_stopBtn_clicked);
+    connect(ui->loadImageBtn, &QPushButton::clicked, this, &Widget::on_loadImageBtn_clicked);
+    connect(ui->saveImageBtn, &QPushButton::clicked, this, &Widget::on_saveImageBtn_clicked);
+    connect(ui->processImageBtn, &QPushButton::clicked, this, &Widget::on_processImageBtn_clicked);
+
+    // 连接图像处理控件
+    connect(ui->grayscaleCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
+    connect(ui->blurCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
+    connect(ui->edgeCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
+    connect(ui->brightnessSlider, &QSlider::valueChanged, this, &Widget::adjustBrightness);
+    connect(ui->contrastSlider, &QSlider::valueChanged, this, &Widget::adjustContrast);
+
+    // 设置滑块范围
+    ui->brightnessSlider->setRange(-100, 100);
+    ui->contrastSlider->setRange(-100, 100);
+
+    // 设置初始状态文本
+    ui->statusLabel->setText("就绪 - 请加载图片开始处理");
+    ui->resultsTextEdit->setText("OpenCV 图像处理功能已启用\n支持以下操作：\n• 加载图片（JPG, PNG, BMP, TIFF）\n• 灰度转换\n• 模糊处理\n• 边缘检测\n• 亮度/对比度调整\n• 实时预览\n• 保存处理后的图片");
+
+    // 连接滑块值变化信号以更新显示值
+    connect(ui->brightnessSlider, &QSlider::valueChanged, this, &Widget::updateBrightnessValue);
+    connect(ui->contrastSlider, &QSlider::valueChanged, this, &Widget::updateContrastValue);
+
+    // 设置图像标签的初始状态
+    ui->imageLabel->setMinimumSize(1, 1);
+    ui->imageLabel->setScaledContents(false);
+    ui->imageLabel->setAlignment(Qt::AlignCenter);
+    ui->imageLabel->setText("等待图像加载...");
+}
+
+Widget::~Widget()
+{
+    delete ui;
+}
+
+bool Widget::loadImage(const QString& filePath)
+{
+    // 使用 OpenCV 读取图片
+    originalImage = cv::imread(filePath.toStdString(), cv::IMREAD_COLOR);
+
+    if (originalImage.empty()) {
+        QMessageBox::warning(this, "警告", "无法读取图片！");
+        return false;
+    }
+
+    // 保存原图副本
+    processedImage = originalImage.clone();
+    imageLoaded = true;
+
+    // 显示图片
+    displayImage(processedImage);
+
+    // 更新UI
+    updateButtonsState();
+    updateImageInfo();
+
+    ui->statusLabel->setText(QString("已加载图片: %1").arg(QFileInfo(filePath).fileName()));
+
+    // 清空预览区域
+    ui->previewLabel->setText("等待处理...");
+
+    return true;
+}
+
+void Widget::displayImage(const cv::Mat& image)
+{
+    if (image.empty()) {
+        ui->imageLabel->clear();
+        ui->imageLabel->setText("等待图像加载...");
+        return;
+    }
+
+    // 转换为 Qt 格式
+    cv::Mat rgbImage;
+    if (image.channels() == 3) {
+        cv::cvtColor(image, rgbImage, cv::COLOR_BGR2RGB);
+    } else {
+        rgbImage = image;
+    }
+
+    QImage qImage(
+        rgbImage.data,
+        rgbImage.cols,
+        rgbImage.rows,
+        rgbImage.step,
+        QImage::Format_RGB888
+    );
+
+    QPixmap pixmap = QPixmap::fromImage(qImage);
+
+    // 缩放图片以适应显示区域
+    QSize viewportSize = ui->scrollArea->viewport()->size();
+    if (viewportSize.width() > 0 && viewportSize.height() > 0) {
+        // 计算合适的缩放尺寸，保持宽高比
+        int margin = 20;
+        int availableWidth = viewportSize.width() - margin;
+        int availableHeight = viewportSize.height() - margin;
+
+        double scaleWidth = (double)availableWidth / pixmap.width();
+        double scaleHeight = (double)availableHeight / pixmap.height();
+        double scale = qMin(scaleWidth, scaleHeight);
+
+        // 确保不会过度放大
+        scale = qMin(scale, 1.0);
+
+        if (scale > 0) {
+            QSize scaledSize(
+                qRound(pixmap.width() * scale),
+                qRound(pixmap.height() * scale)
+            );
+            pixmap = pixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        }
+    }
+
+    ui->imageLabel->setPixmap(pixmap);
+}
+
+void Widget::updateImageInfo()
+{
+    if (!imageLoaded) return;
+
+    QString info = QString("=== 图像信息 ===\n\n");
+    info += QString("原始尺寸: %1 x %2 像素\n").arg(originalImage.cols).arg(originalImage.rows);
+    info += QString("通道数: %1\n").arg(originalImage.channels());
+    info += QString("位深度: %1\n").arg(originalImage.depth());
+    info += QString("图像类型: %1\n\n").arg(originalImage.type());
+
+    info += "=== 处理状态 ===\n\n";
+    info += "亮度调整: " + QString::number(brightnessValue) + "\n";
+    info += "对比度调整: " + QString::number(contrastValue) + "\n";
+    info += "灰度效果: " + (ui->grayscaleCheck->isChecked() ? "✓" : "✗") + "\n";
+    info += "模糊效果: " + (ui->blurCheck->isChecked() ? "✓" : "✗") + "\n";
+    info += "边缘检测: " + (ui->edgeCheck->isChecked() ? "✓" : "✗") + "\n";
+
+    ui->resultsTextEdit->setText(info);
+}
+
+void Widget::updateButtonsState()
+{
+    bool hasImage = imageLoaded;
+    ui->saveImageBtn->setEnabled(hasImage);
+    ui->processImageBtn->setEnabled(hasImage);
+    ui->grayscaleCheck->setEnabled(hasImage);
+    ui->blurCheck->setEnabled(hasImage);
+    ui->edgeCheck->setEnabled(hasImage);
+    ui->brightnessSlider->setEnabled(hasImage);
+    ui->contrastSlider->setEnabled(hasImage);
+}
+
+void Widget::showProcessingTime()
+{
+    static QElapsedTimer timer;
+    static bool started = false;
+
+    if (!started) {
+        timer.start();
+        started = true;
+    } else {
+        qint64 elapsed = timer.elapsed();
+        ui->statusLabel->setText(QString("处理完成，耗时: %1 ms").arg(elapsed));
+        started = false;
+    }
+}
+
+void Widget::on_startBtn_clicked()
+{
+    ui->statusLabel->setText("实时检测功能待实现 - 需要添加 YOLO 和相机支持");
+    ui->startBtn->setEnabled(false);
+    ui->stopBtn->setEnabled(true);
+    ui->loadImageBtn->setEnabled(false);
+}
+
+void Widget::on_stopBtn_clicked()
+{
+    ui->statusLabel->setText("已停止");
+    ui->startBtn->setEnabled(true);
+    ui->stopBtn->setEnabled(false);
+    ui->loadImageBtn->setEnabled(true);
+}
+
+void Widget::on_loadImageBtn_clicked()
+{
+    // 选择图片文件
+    QString imagePath = QFileDialog::getOpenFileName(
+        this,
+        "选择图片",
+        "",
+        "图片文件 (*.jpg *.jpeg *.png *.bmp *.tiff)"
+    );
+
+    if (imagePath.isEmpty()) {
+        return;
+    }
+
+    // 使用 OpenCV 加载图片
+    if (loadImage(imagePath)) {
+        ui->resultsTextEdit->setText("图片加载成功！\n可以使用右侧的控制面板进行图像处理。\n\n支持的格式：JPG, JPEG, PNG, BMP, TIFF");
+    }
+}
+
+void Widget::on_saveImageBtn_clicked()
+{
+    if (!imageLoaded) return;
+
+    // 选择保存路径
+    QString savePath = QFileDialog::getSaveFileName(
+        this,
+        "保存图片",
+        "",
+        "图片文件 (*.jpg *.jpeg *.png *.bmp)"
+    );
+
+    if (savePath.isEmpty()) {
+        return;
+    }
+
+    // 根据扩展名确定保存格式
+    QString ext = QFileInfo(savePath).suffix().toLower();
+    int format;
+
+    if (ext == "jpg" || ext == "jpeg") {
+        format = cv::IMWRITE_JPEG_QUALITY;
+    } else if (ext == "png") {
+        format = cv::IMWRITE_PNG_COMPRESSION;
+    } else if (ext == "bmp") {
+        format = -1;
+    } else {
+        format = cv::IMWRITE_JPEG_QUALITY;
+        savePath += ".jpg";
+    }
+
+    // 保存图片
+    bool success = cv::imwrite(savePath.toStdString(), processedImage);
+
+    if (success) {
+        ui->statusLabel->setText(QString("图片已保存: %1").arg(QFileInfo(savePath).fileName()));
+        QMessageBox::information(this, "成功", "图片保存成功！");
+    } else {
+        QMessageBox::warning(this, "警告", "图片保存失败！");
+    }
+}
+
+void Widget::on_processImageBtn_clicked()
+{
+    if (!imageLoaded) return;
+
+    // 重置为原图
+    processedImage = originalImage.clone();
+
+    // 应用所有选中的滤镜
+    applyFilters();
+
+    // 更新状态
+    ui->statusLabel->setText("图像处理完成");
+
+    // 显示处理统计
+    QString stats = "=== 处理完成 ===\n\n";
+    stats += "处理时间: 计算中...\n";
+    stats += "应用的效果:\n";
+    if (ui->grayscaleCheck->isChecked()) stats += "- 灰度化\n";
+    if (ui->blurCheck->isChecked()) stats += "- 高斯模糊\n";
+    if (ui->edgeCheck->isChecked()) stats += "- Canny边缘检测\n";
+    if (brightnessValue != 0) stats += QString("- 亮度调整: %1\n").arg(brightnessValue);
+    if (contrastValue != 0) stats += QString("- 对比度调整: %1\n").arg(contrastValue);
+
+    ui->resultsTextEdit->setText(stats);
+}
+
+void Widget::applyGrayscale()
+{
+    if (!imageLoaded) return;
+
+    if (ui->grayscaleCheck->isChecked()) {
+        cv::cvtColor(processedImage, processedImage, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(processedImage, processedImage, cv::COLOR_GRAY2BGR);
+    }
+
+    displayImage(processedImage);
+}
+
+void Widget::applyBlur()
+{
+    if (!imageLoaded) return;
+
+    if (ui->blurCheck->isChecked()) {
+        cv::GaussianBlur(processedImage, processedImage, cv::Size(5, 5), 0);
+    }
+
+    displayImage(processedImage);
+}
+
+void Widget::applyEdgeDetection()
+{
+    if (!imageLoaded) return;
+
+    if (ui->edgeCheck->isChecked()) {
+        cv::Mat gray;
+        cv::cvtColor(processedImage, gray, cv::COLOR_BGR2GRAY);
+
+        cv::Mat edges;
+        cv::Canny(gray, edges, 50, 150);
+
+        // 将边缘转换为彩色
+        cv::cvtColor(edges, processedImage, cv::COLOR_GRAY2BGR);
+    }
+
+    displayImage(processedImage);
+}
+
+void Widget::adjustBrightness(int value)
+{
+    brightnessValue = value;
+    applyFilters();
+}
+
+void Widget::adjustContrast(int value)
+{
+    contrastValue = value;
+    applyFilters();
+}
+
+void Widget::applyFilters()
+{
+    if (!imageLoaded) return;
+
+    // 重置为原图
+    processedImage = originalImage.clone();
+
+    // 应用灰度
+    applyGrayscale();
+
+    // 应用模糊
+    applyBlur();
+
+    // 应用边缘检测
+    applyEdgeDetection();
+
+    // 应用亮度和对比度调整
+    if (brightnessValue != 0 || contrastValue != 0) {
+        double alpha = 1.0 + (double)contrastValue / 100.0;
+        int beta = brightnessValue;
+
+        cv::Mat adjusted = processedImage.clone();
+        processedImage.convertTo(processedImage, -1, alpha, beta);
+    }
+
+    // 显示处理后的图像
+    displayImage(processedImage);
+
+    // 更新预览
+    updatePreview();
+
+    // 显示处理时间
+    showProcessingTime();
+}
+
+void Widget::updateBrightnessValue(int value)
+{
+    ui->brightnessValueLabel->setText(QString::number(value));
+    if (imageLoaded) {
+        applyFilters();
+    }
+}
+
+void Widget::updateContrastValue(int value)
+{
+    ui->contrastValueLabel->setText(QString::number(value));
+    if (imageLoaded) {
+        applyFilters();
+    }
+}
+
+void Widget::updatePreview()
+{
+    if (!imageLoaded || processedImage.empty()) {
+        ui->previewLabel->setText("预览区域");
+        return;
+    }
+
+    // 创建缩小的预览图像
+    cv::Mat previewMat;
+    cv::resize(processedImage, previewMat, cv::Size(300, 150));
+
+    // 转换为Qt格式
+    cv::Mat rgbImage;
+    if (previewMat.channels() == 3) {
+        cv::cvtColor(previewMat, rgbImage, cv::COLOR_BGR2RGB);
+    } else {
+        rgbImage = previewMat;
+    }
+
+    QImage qImage(
+        rgbImage.data,
+        rgbImage.cols,
+        rgbImage.rows,
+        rgbImage.step,
+        QImage::Format_RGB888
+    );
+
+    QPixmap pixmap = QPixmap::fromImage(qImage);
+    ui->previewLabel->setPixmap(pixmap.scaled(
+        ui->previewLabel->size(),
+        Qt::KeepAspectRatio,
+        Qt::SmoothTransformation
+    ));
+}
+
+cv::Mat Widget::convertToQtFormat(const cv::Mat& image)
+{
+    if (image.empty()) return image;
+
+    cv::Mat rgbImage;
+    if (image.channels() == 3) {
+        cv::cvtColor(image, rgbImage, cv::COLOR_BGR2RGB);
+    } else {
+        rgbImage = image;
+    }
+
+    return rgbImage;
+}
