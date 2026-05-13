@@ -53,6 +53,10 @@ private slots:
     void adjustBrightness(int value);
     void adjustContrast(int value);
 
+    // 滑块数值显示更新
+    void updateBrightnessValue(int value);
+    void updateContrastValue(int value);
+
 private:
     Ui::Widget *ui;
 
@@ -64,6 +68,10 @@ protected:
     cv::Mat originalImage;    // 原始图像
     cv::Mat processedImage;   // 处理后的图像
     bool imageLoaded;         // 图像是否已加载标志
+
+    // 图像处理参数 (必须声明在 YOLO 成员之前, 以匹配初始化列表顺序)
+    int brightnessValue;
+    int contrastValue;
 
     // YOLO检测相关成员
     HikCamera *camera;              // 相机对象
@@ -99,10 +107,6 @@ protected:
     void updateButtonsState();
     void showProcessingTime();
     void updateStatus(const QString& status);
-
-    // 图像处理参数
-    int brightnessValue;
-    int contrastValue;
 };
 
 #endif // WIDGET_H

@@ -10,24 +10,63 @@
     <height>600</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>1024</width>
+    <height>600</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>1024</width>
+    <height>600</height>
+   </size>
+  </property>
   <property name="windowTitle">
-   <string>天线检测系统 - OpenCV图像处理</string>
+   <string>天线检测系统 v2.0 - YOLO智能检测</string>
   </property>
   <layout class="QVBoxLayout" name="mainVerticalLayout">
+   <property name="spacing">
+    <number>2</number>
+   </property>
+   <property name="leftMargin">
+    <number>2</number>
+   </property>
+   <property name="topMargin">
+    <number>2</number>
+   </property>
+   <property name="rightMargin">
+    <number>2</number>
+   </property>
+   <property name="bottomMargin">
+    <number>2</number>
+   </property>
    <item>
     <widget class="QLabel" name="titleLabel">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>32</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>32</height>
+      </size>
+     </property>
      <property name="styleSheet">
       <string>QLabel {
         background-color: #2c3e50;
         color: white;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: bold;
-        padding: 8px;
+        padding: 6px;
         border-bottom: 1px solid #34495e;
       }</string>
      </property>
      <property name="text">
-      <string>天线检测系统 v1.0 - OpenCV图像处理</string>
+      <string>天线检测系统 v2.0 - YOLO智能检测</string>
      </property>
      <property name="alignment">
       <set>Qt::AlignCenter</set>
@@ -36,10 +75,23 @@
    </item>
    <item>
     <layout class="QHBoxLayout" name="mainHorizontalLayout">
+     <property name="spacing">
+      <number>3</number>
+     </property>
      <item>
       <layout class="QVBoxLayout" name="leftLayout">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QScrollArea" name="scrollArea">
+         <property name="styleSheet">
+          <string>QScrollArea {
+            border: 2px solid #bdc3c7;
+            border-radius: 4px;
+            background-color: #ecf0f1;
+          }</string>
+         </property>
          <property name="verticalScrollBarPolicy">
           <enum>Qt::ScrollBarAsNeeded</enum>
          </property>
@@ -54,25 +106,18 @@
            <rect>
             <x>0</x>
             <y>0</y>
-            <width>644</width>
-            <height>376</height>
+            <width>698</width>
+            <height>455</height>
            </rect>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
           </property>
           <layout class="QVBoxLayout" name="imageLayout">
            <item>
             <widget class="QLabel" name="imageLabel">
              <property name="styleSheet">
               <string>QLabel {
-                 background-color: #ecf0f1;
-                 border: 2px solid #bdc3c7;
-                 border-radius: 5px;
-                 padding: 10px;
+                 background-color: #f4f6f7;
+                 border: none;
+                 padding: 5px;
                }</string>
              </property>
              <property name="text">
@@ -95,87 +140,93 @@
        </item>
        <item>
         <layout class="QHBoxLayout" name="buttonLayout">
+         <property name="spacing">
+          <number>4</number>
+         </property>
          <item>
-          <widget class="QPushButton" name="startBtn">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
+          <widget class="QPushButton" name="loadModelBtn">
            <property name="minimumSize">
             <size>
-             <width>100</width>
-             <height>40</height>
+             <width>90</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
             </size>
            </property>
            <property name="toolTip">
-            <string>开始实时检测（需添加相机支持）</string>
+            <string>加载YOLO模型文件（.rknn）和标签文件（.txt）</string>
            </property>
            <property name="styleSheet">
             <string>QPushButton {
-               background-color: #27ae60;
+               background-color: #8e44ad;
                color: white;
                border: none;
-               border-radius: 5px;
+               border-radius: 4px;
                font-weight: bold;
+               font-size: 12px;
              }
-             QPushButton:hover { background-color: #229954; }
-             QPushButton:pressed { background-color: #1e8449; }</string>
+             QPushButton:hover { background-color: #7d3c98; }
+             QPushButton:pressed { background-color: #6c3483; }</string>
            </property>
            <property name="text">
-            <string>开始检测</string>
+            <string>加载模型</string>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QPushButton" name="stopBtn">
+          <widget class="QPushButton" name="yoloDetectBtn">
            <property name="enabled">
             <bool>false</bool>
            </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>100</horstretch>
-             <verstretch>40</verstretch>
-            </sizepolicy>
-           </property>
            <property name="minimumSize">
             <size>
-             <width>100</width>
-             <height>40</height>
+             <width>90</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
             </size>
            </property>
            <property name="toolTip">
-            <string>停止检测</string>
+            <string>对当前图像执行YOLO检测</string>
            </property>
            <property name="styleSheet">
             <string>QPushButton {
-               background-color: #e74c3c;
+               background-color: #e67e22;
                color: white;
                border: none;
-               border-radius: 5px;
+               border-radius: 4px;
                font-weight: bold;
+               font-size: 12px;
              }
-             QPushButton:hover { background-color: #c0392b; }
-             QPushButton:pressed { background-color: #a93226; }</string>
+             QPushButton:hover { background-color: #d35400; }
+             QPushButton:pressed { background-color: #ba4a00; }
+             QPushButton:disabled { background-color: #bdc3c7; }</string>
            </property>
            <property name="text">
-            <string>停止检测</string>
+            <string>YOLO检测</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QPushButton" name="loadImageBtn">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
            <property name="minimumSize">
             <size>
-             <width>100</width>
-             <height>40</height>
+             <width>85</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
             </size>
            </property>
            <property name="toolTip">
@@ -186,8 +237,9 @@
                background-color: #3498db;
                color: white;
                border: none;
-               border-radius: 5px;
+               border-radius: 4px;
                font-weight: bold;
+               font-size: 12px;
              }
              QPushButton:hover { background-color: #2980b9; }
              QPushButton:pressed { background-color: #21618c; }</string>
@@ -202,16 +254,16 @@
            <property name="enabled">
             <bool>false</bool>
            </property>
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
            <property name="minimumSize">
             <size>
-             <width>100</width>
-             <height>40</height>
+             <width>85</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
             </size>
            </property>
            <property name="toolTip">
@@ -219,17 +271,91 @@
            </property>
            <property name="styleSheet">
             <string>QPushButton {
-               background-color: #8e44ad;
+               background-color: #2ecc71;
                color: white;
                border: none;
-               border-radius: 5px;
+               border-radius: 4px;
                font-weight: bold;
+               font-size: 12px;
              }
-             QPushButton:hover { background-color: #7d3c98; }
-             QPushButton:pressed { background-color: #6c3483; }</string>
+             QPushButton:hover { background-color: #27ae60; }
+             QPushButton:pressed { background-color: #1e8449; }
+             QPushButton:disabled { background-color: #bdc3c7; }</string>
            </property>
            <property name="text">
             <string>保存图片</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="startBtn">
+           <property name="minimumSize">
+            <size>
+             <width>85</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>启动USB相机进行实时YOLO检测</string>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton {
+               background-color: #27ae60;
+               color: white;
+               border: none;
+               border-radius: 4px;
+               font-weight: bold;
+               font-size: 12px;
+             }
+             QPushButton:hover { background-color: #229954; }
+             QPushButton:pressed { background-color: #1e8449; }</string>
+           </property>
+           <property name="text">
+            <string>开始检测</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="stopBtn">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>85</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>停止相机和实时检测</string>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton {
+               background-color: #e74c3c;
+               color: white;
+               border: none;
+               border-radius: 4px;
+               font-weight: bold;
+               font-size: 12px;
+             }
+             QPushButton:hover { background-color: #c0392b; }
+             QPushButton:pressed { background-color: #a93226; }
+             QPushButton:disabled { background-color: #bdc3c7; }</string>
+           </property>
+           <property name="text">
+            <string>停止检测</string>
            </property>
           </widget>
          </item>
@@ -239,16 +365,240 @@
      </item>
      <item>
       <layout class="QVBoxLayout" name="rightPanelLayout">
+       <property name="spacing">
+        <number>4</number>
+       </property>
+       <item>
+        <widget class="QGroupBox" name="yoloGroup">
+         <property name="minimumSize">
+          <size>
+           <width>290</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>290</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string>QGroupBox {
+            font-weight: bold;
+            border: 1px solid #8e44ad;
+            border-radius: 4px;
+            margin-top: 6px;
+            padding-top: 14px;
+          }
+          QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px;
+            color: #8e44ad;
+          }</string>
+         </property>
+         <property name="title">
+          <string>YOLO检测</string>
+         </property>
+         <layout class="QVBoxLayout" name="yoloLayout">
+          <property name="spacing">
+           <number>3</number>
+          </property>
+          <property name="leftMargin">
+           <number>6</number>
+          </property>
+          <property name="topMargin">
+           <number>6</number>
+          </property>
+          <property name="rightMargin">
+           <number>6</number>
+          </property>
+          <property name="bottomMargin">
+           <number>6</number>
+          </property>
+          <item>
+           <layout class="QHBoxLayout" name="modelStatusLayout">
+            <item>
+             <widget class="QLabel" name="modelStatusIcon">
+              <property name="minimumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string>QLabel {
+                 background-color: #e74c3c;
+                 border-radius: 8px;
+               }</string>
+              </property>
+              <property name="text">
+               <string/>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="modelStatusLabel">
+              <property name="styleSheet">
+               <string>QLabel {
+                 font-weight: normal;
+                 font-size: 11px;
+                 color: #2c3e50;
+               }</string>
+              </property>
+              <property name="text">
+               <string>模型未加载</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="modelStatusSpacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="yoloButtonLayout">
+            <item>
+             <widget class="QPushButton" name="loadModelMiniBtn">
+              <property name="styleSheet">
+               <string>QPushButton {
+                 background-color: #8e44ad;
+                 color: white;
+                 border: none;
+                 border-radius: 3px;
+                 padding: 5px 10px;
+                 font-size: 11px;
+                 font-weight: bold;
+               }
+               QPushButton:hover { background-color: #7d3c98; }
+               QPushButton:pressed { background-color: #6c3483; }</string>
+              </property>
+              <property name="text">
+               <string>加载模型</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="yoloDetectMiniBtn">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="styleSheet">
+               <string>QPushButton {
+                 background-color: #e67e22;
+                 color: white;
+                 border: none;
+                 border-radius: 3px;
+                 padding: 5px 10px;
+                 font-size: 11px;
+                 font-weight: bold;
+               }
+               QPushButton:hover { background-color: #d35400; }
+               QPushButton:pressed { background-color: #ba4a00; }
+               QPushButton:disabled { background-color: #bdc3c7; }</string>
+              </property>
+              <property name="text">
+               <string>YOLO检测</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="detectResultLabel">
+            <property name="styleSheet">
+             <string>QLabel {
+               font-weight: normal;
+               font-size: 11px;
+               color: #7f8c8d;
+               padding: 2px;
+             }</string>
+            </property>
+            <property name="text">
+             <string>检测结果将显示在此处</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
        <item>
         <widget class="QGroupBox" name="filterGroup">
+         <property name="minimumSize">
+          <size>
+           <width>290</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>290</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string>QGroupBox {
+            font-weight: bold;
+            border: 1px solid #3498db;
+            border-radius: 4px;
+            margin-top: 6px;
+            padding-top: 14px;
+          }
+          QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px;
+            color: #2980b9;
+          }</string>
+         </property>
          <property name="title">
           <string>滤镜效果</string>
          </property>
          <layout class="QVBoxLayout" name="filterLayout">
+          <property name="spacing">
+           <number>2</number>
+          </property>
+          <property name="leftMargin">
+           <number>6</number>
+          </property>
+          <property name="topMargin">
+           <number>4</number>
+          </property>
+          <property name="rightMargin">
+           <number>6</number>
+          </property>
+          <property name="bottomMargin">
+           <number>4</number>
+          </property>
           <item>
            <widget class="QCheckBox" name="grayscaleCheck">
             <property name="toolTip">
              <string>将图像转换为灰度图</string>
+            </property>
+            <property name="styleSheet">
+             <string>QCheckBox { font-weight: normal; font-size: 11px; }</string>
             </property>
             <property name="text">
              <string>灰度化</string>
@@ -260,6 +610,9 @@
             <property name="toolTip">
              <string>应用高斯模糊滤镜</string>
             </property>
+            <property name="styleSheet">
+             <string>QCheckBox { font-weight: normal; font-size: 11px; }</string>
+            </property>
             <property name="text">
              <string>模糊</string>
             </property>
@@ -269,6 +622,9 @@
            <widget class="QCheckBox" name="edgeCheck">
             <property name="toolTip">
              <string>使用Canny算法检测边缘</string>
+            </property>
+            <property name="styleSheet">
+             <string>QCheckBox { font-weight: normal; font-size: 11px; }</string>
             </property>
             <property name="text">
              <string>边缘检测</string>
@@ -280,14 +636,65 @@
        </item>
        <item>
         <widget class="QGroupBox" name="adjustmentGroup">
+         <property name="minimumSize">
+          <size>
+           <width>290</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>290</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string>QGroupBox {
+            font-weight: bold;
+            border: 1px solid #f39c12;
+            border-radius: 4px;
+            margin-top: 6px;
+            padding-top: 14px;
+          }
+          QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px;
+            color: #e67e22;
+          }</string>
+         </property>
          <property name="title">
           <string>图像调整</string>
          </property>
          <layout class="QVBoxLayout" name="adjustmentLayout">
+          <property name="spacing">
+           <number>2</number>
+          </property>
+          <property name="leftMargin">
+           <number>6</number>
+          </property>
+          <property name="topMargin">
+           <number>4</number>
+          </property>
+          <property name="rightMargin">
+           <number>6</number>
+          </property>
+          <property name="bottomMargin">
+           <number>4</number>
+          </property>
           <item>
            <layout class="QHBoxLayout" name="brightnessLayout">
             <item>
              <widget class="QLabel" name="brightnessLabel">
+              <property name="minimumSize">
+               <size>
+                <width>40</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string>QLabel { font-weight: normal; font-size: 11px; }</string>
+              </property>
               <property name="text">
                <string>亮度:</string>
               </property>
@@ -311,6 +718,15 @@
             </item>
             <item>
              <widget class="QLabel" name="brightnessValueLabel">
+              <property name="minimumSize">
+               <size>
+                <width>25</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string>QLabel { font-weight: normal; font-size: 11px; }</string>
+              </property>
               <property name="text">
                <string>0</string>
               </property>
@@ -325,6 +741,15 @@
            <layout class="QHBoxLayout" name="contrastLayout">
             <item>
              <widget class="QLabel" name="contrastLabel">
+              <property name="minimumSize">
+               <size>
+                <width>40</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string>QLabel { font-weight: normal; font-size: 11px; }</string>
+              </property>
               <property name="text">
                <string>对比度:</string>
               </property>
@@ -348,6 +773,15 @@
             </item>
             <item>
              <widget class="QLabel" name="contrastValueLabel">
+              <property name="minimumSize">
+               <size>
+                <width>25</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string>QLabel { font-weight: normal; font-size: 11px; }</string>
+              </property>
               <property name="text">
                <string>0</string>
               </property>
@@ -358,78 +792,27 @@
             </item>
            </layout>
           </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="processImageBtn">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="minimumSize">
-          <size>
-           <width>200</width>
-           <height>40</height>
-          </size>
-         </property>
-         <property name="toolTip">
-          <string>应用所有选中的图像处理效果</string>
-         </property>
-         <property name="layoutDirection">
-          <enum>Qt::LeftToRight</enum>
-         </property>
-         <property name="styleSheet">
-          <string>QPushButton {
-             background-color: #f39c12;
-             color: white;
-             border: none;
-             border-radius: 5px;
-             font-weight: bold;
-           }
-           QPushButton:hover { background-color: #e67e22; }
-           QPushButton:pressed { background-color: #d35400; }</string>
-         </property>
-         <property name="text">
-          <string>应用处理</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QGroupBox" name="previewGroup">
-         <property name="title">
-          <string>处理后预览</string>
-         </property>
-         <layout class="QVBoxLayout" name="previewLayout">
           <item>
-           <widget class="QLabel" name="previewLabel">
-            <property name="minimumSize">
-             <size>
-              <width>300</width>
-              <height>150</height>
-             </size>
-            </property>
-            <property name="styleSheet">
-             <string>QLabel {
-                 background-color: #f8f9fa;
-                 border: 1px solid #dee2e6;
-                 border-radius: 3px;
-                 padding: 5px;
-               }</string>
-            </property>
-            <property name="text">
-             <string>预览区域</string>
-            </property>
-            <property name="scaledContents">
+           <widget class="QPushButton" name="processImageBtn">
+            <property name="enabled">
              <bool>false</bool>
             </property>
-            <property name="alignment">
-             <set>Qt::AlignCenter</set>
+            <property name="styleSheet">
+             <string>QPushButton {
+               background-color: #f39c12;
+               color: white;
+               border: none;
+               border-radius: 3px;
+               padding: 4px;
+               font-weight: bold;
+               font-size: 11px;
+             }
+             QPushButton:hover { background-color: #e67e22; }
+             QPushButton:pressed { background-color: #d35400; }
+             QPushButton:disabled { background-color: #bdc3c7; }</string>
+            </property>
+            <property name="text">
+             <string>应用处理</string>
             </property>
            </widget>
           </item>
@@ -438,17 +821,59 @@
        </item>
        <item>
         <widget class="QGroupBox" name="resultGroup">
+         <property name="minimumSize">
+          <size>
+           <width>290</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>290</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string>QGroupBox {
+            font-weight: bold;
+            border: 1px solid #2ecc71;
+            border-radius: 4px;
+            margin-top: 6px;
+            padding-top: 14px;
+          }
+          QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px;
+            color: #27ae60;
+          }</string>
+         </property>
          <property name="title">
           <string>结果信息</string>
          </property>
          <layout class="QVBoxLayout" name="resultLayout">
+          <property name="spacing">
+           <number>2</number>
+          </property>
+          <property name="leftMargin">
+           <number>4</number>
+          </property>
+          <property name="topMargin">
+           <number>4</number>
+          </property>
+          <property name="rightMargin">
+           <number>4</number>
+          </property>
+          <property name="bottomMargin">
+           <number>4</number>
+          </property>
           <item>
            <widget class="QTextEdit" name="resultsTextEdit">
             <property name="styleSheet">
              <string>QTextEdit {
                 background-color: #f8f9fa;
                 border: 1px solid #dee2e6;
-                padding: 5px;
+                padding: 4px;
                 font-family: monospace;
                 font-size: 10px;
               }</string>
@@ -470,17 +895,29 @@
    </item>
    <item>
     <widget class="QLabel" name="statusLabel">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>24</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>24</height>
+      </size>
+     </property>
      <property name="styleSheet">
       <string>QLabel {
         background-color: #ecf0f1;
-        padding: 8px;
-        font-size: 12px;
+        padding: 4px;
+        font-size: 11px;
         color: #2c3e50;
         border-top: 1px solid #bdc3c7;
       }</string>
      </property>
      <property name="text">
-      <string>就绪 - 请加载图片开始处理</string>
+      <string>就绪 - 请加载模型和图片开始检测</string>
      </property>
      <property name="alignment">
       <set>Qt::AlignCenter</set>
@@ -489,7 +926,7 @@
    </item>
   </layout>
  </widget>
- <layoutdefault spacing="6" margin="11"/>
+ <layoutdefault spacing="4" margin="4"/>
  <resources/>
  <connections>
   <connection>
@@ -572,6 +1009,38 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>loadModelMiniBtn</sender>
+   <signal>clicked()</signal>
+   <receiver>Widget</receiver>
+   <slot>on_loadModelBtn_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>800</x>
+     <y>100</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>800</x>
+     <y>100</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>yoloDetectMiniBtn</sender>
+   <signal>clicked()</signal>
+   <receiver>Widget</receiver>
+   <slot>on_yoloDetectBtn_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>900</x>
+     <y>100</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>900</x>
+     <y>100</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>on_startBtn_clicked()</slot>
@@ -579,5 +1048,7 @@
   <slot>on_loadImageBtn_clicked()</slot>
   <slot>on_saveImageBtn_clicked()</slot>
   <slot>on_processImageBtn_clicked()</slot>
+  <slot>on_yoloDetectBtn_clicked()</slot>
+  <slot>on_loadModelBtn_clicked()</slot>
  </slots>
 </ui>
