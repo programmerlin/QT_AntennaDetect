@@ -50,6 +50,7 @@ private slots:
     void applyGrayscale();
     void applyBlur();
     void applyEdgeDetection();
+    void applyFilters();
     void adjustBrightness(int value);
     void adjustContrast(int value);
 
@@ -96,7 +97,6 @@ protected:
     bool loadImage(const QString& filePath);
     void displayImage(const cv::Mat& image);
     void updateImageInfo();
-    void applyFilters();
     cv::Mat convertToQtFormat(const cv::Mat& image);
 
     // 相机方法

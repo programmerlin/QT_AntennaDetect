@@ -40,15 +40,15 @@ Widget::Widget(QWidget *parent) :
     connect(ui->saveImageBtn, &QPushButton::clicked, this, &Widget::on_saveImageBtn_clicked);
     connect(ui->processImageBtn, &QPushButton::clicked, this, &Widget::on_processImageBtn_clicked);
 
-    // YOLO 按钮信号 (主工具栏 + 右侧面板)
+    // YOLO 按钮信号 (主工具栏)
     connect(ui->loadModelBtn, &QPushButton::clicked, this, &Widget::on_loadModelBtn_clicked);
     connect(ui->yoloDetectBtn, &QPushButton::clicked, this, &Widget::on_yoloDetectBtn_clicked);
-    // 右侧面板快捷按钮连接到同一槽函数，信号已在 ui 的 connections 中定义
+    // 右侧面板快捷按钮 (loadModelMiniBtn, yoloDetectMiniBtn) 的 clicked 信号
+    // 已在 .ui 文件的 <connections> 中关联到对应的槽函数
 
     // --- 连接图像处理控件 ---
-    connect(ui->grayscaleCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
-    connect(ui->blurCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
-    connect(ui->edgeCheck, &QCheckBox::toggled, this, &Widget::applyFilters);
+    // 注意: grayscaleCheck, blurCheck, edgeCheck 的 toggled 信号已在 .ui 的
+    // <connections> 中关联到 applyFilters() 槽, 此处不再重复连接
     connect(ui->brightnessSlider, &QSlider::valueChanged, this, &Widget::adjustBrightness);
     connect(ui->contrastSlider, &QSlider::valueChanged, this, &Widget::adjustContrast);
 
@@ -87,22 +87,22 @@ Widget::Widget(QWidget *parent) :
 
 Widget::~Widget()
 {
-    // 停止相机和定时器
+    // 停止定时器
     if (cameraTimer && cameraTimer->isActive()) {
         cameraTimer->stop();
     }
 
-    // 关闭相机
+    // 先释放 visioner (其析构会释放模型和DMA内存, 但不关闭相机)
+    if (visioner) {
+        delete visioner;
+        visioner = nullptr;
+    }
+
+    // 再关闭并释放相机
     if (camera) {
         camera->Camera_Close();
         delete camera;
         camera = nullptr;
-    }
-
-    // 释放 visioner
-    if (visioner) {
-        delete visioner;
-        visioner = nullptr;
     }
 
     delete ui;
@@ -147,7 +147,7 @@ void Widget::on_loadModelBtn_clicked()
     // 处理界面事件，让状态标签刷新
     QApplication::processEvents();
 
-    // 加载模型
+    // 加载模型 (内部会创建 camera 对象并初始化)
     if (loadYOLOModel()) {
         modelLoaded = true;
         ui->yoloDetectBtn->setEnabled(true);
@@ -188,11 +188,17 @@ bool Widget::loadYOLOModel()
     }
 
     try {
-        // 创建 Antenna_Visioner 实例
-        // 注意: 如果 visioner 已存在，先释放
+        // 先释放旧的 visioner
         if (visioner) {
             delete visioner;
             visioner = nullptr;
+        }
+
+        // 重要: 创建相机对象 (但先不初始化)
+        // Antenna_Visioner::init_system() 内部会调用 Camera_Init() + Camera_Open()
+        // 所以此处只需 new HikCamera (状态为 WAIT_FOR_INIT), 不调用 init/open
+        if (!camera) {
+            camera = new HikCamera(0);
         }
 
         visioner = new Antenna_Visioner(
@@ -203,7 +209,10 @@ bool Widget::loadYOLOModel()
             camera
         );
 
-        // 初始化系统
+        // init_system() 内部会:
+        //   1. 加载模型
+        //   2. 分配 DMA 缓冲区
+        //   3. 初始化并打开相机 (Camera_Init + Camera_Open)
         return visioner->init_system();
     } catch (const std::exception& e) {
         qDebug() << "loadYOLOModel exception:" << e.what();
@@ -230,7 +239,6 @@ void Widget::on_yoloDetectBtn_clicked()
         return;
     }
 
-    // 执行检测
     performYOLODetection(processedImage);
 }
 
@@ -243,7 +251,6 @@ void Widget::performYOLODetection(const cv::Mat& image)
     updateStatus("正在执行YOLO检测...");
     QApplication::processEvents();
 
-    // 清空上一次检测结果
     detectionResults.clear();
 
     // 创建检测用图像副本
@@ -253,15 +260,16 @@ void Widget::performYOLODetection(const cv::Mat& image)
     QElapsedTimer timer;
     timer.start();
 
+    // detect_once() 内部会:
+    //   1. 执行 RKNN 推理
+    //   2. 用 image_utils 的 draw_rectangle/draw_text 直接在图像上绘制检测框和标签
+    //   3. 填充 detectionResults (className, classId, prop; 但不填充 box[4])
     bool success = visioner->detect_once(detectImage, detectionResults);
 
     qint64 elapsed = timer.elapsed();
 
     if (success) {
-        // 在图像上绘制检测结果
-        drawDetections(detectImage);
-
-        // 更新显示
+        // detect_once 已绘制检测框, 直接显示
         displayImage(detectImage);
 
         // 更新 processedImage 为带检测框的图像
@@ -272,7 +280,10 @@ void Widget::performYOLODetection(const cv::Mat& image)
 
         updateStatus(QString("YOLO检测完成，耗时 %1 ms").arg(elapsed));
     } else {
+        // 检测失败或未检测到目标, 显示原图
+        displayImage(detectImage);
         updateStatus("YOLO检测未检测到目标");
+        ui->detectResultLabel->setText("未检测到目标");
         ui->resultsTextEdit->setText("YOLO检测完成\n未检测到目标");
     }
 }
@@ -290,6 +301,7 @@ void Widget::displayYOLOResults()
     ui->detectResultLabel->setText(resultSummary);
 
     // 更新详细结果文本框
+    // 注意: detect_once() 不填充 box[4] 坐标, 所以结果中不显示位置信息
     QString detail = "YOLO检测结果\n";
     detail += "━━━━━━━━━━━━━━━━━━\n\n";
     detail += QString("检测到 %1 个目标:\n\n").arg(detectionResults.size());
@@ -299,54 +311,45 @@ void Widget::displayYOLOResults()
         detail += QString("目标 %1:\n").arg(i + 1);
         detail += QString("  类别: %1\n").arg(QString::fromStdString(result.className));
         detail += QString("  置信度: %1%\n").arg(result.prop * 100, 0, 'f', 1);
-        detail += QString("  位置: (%1, %2) - (%3, %4)\n")
-                     .arg(result.box[0])
-                     .arg(result.box[1])
-                     .arg(result.box[2])
-                     .arg(result.box[3]);
         detail += "\n";
     }
 
     ui->resultsTextEdit->setText(detail);
 }
 
+// drawDetections 保留但不被 performYOLODetection 调用,
+// 因为 detect_once() 已使用 image_utils 在图像上绘制了检测框.
+// detect_once() 不填充 DetectionResult.box[4], 因此此函数使用 box 值前需确保其有效.
 void Widget::drawDetections(cv::Mat& image)
 {
     if (image.empty()) return;
 
     for (const auto& result : detectionResults) {
-        // 边界框坐标
         int x1 = result.box[0];
         int y1 = result.box[1];
         int x2 = result.box[2];
         int y2 = result.box[3];
 
-        // 边界框颜色（根据类别生成不同颜色）
         cv::Scalar color(
             (result.classId * 50) % 255,
             (result.classId * 100) % 255,
             (result.classId * 150) % 255
         );
 
-        // 绘制边界框
         cv::rectangle(image, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
 
-        // 构建标签文本
         std::string label = result.className + " " +
             std::to_string(static_cast<int>(result.prop * 100)) + "%";
 
-        // 计算标签背景大小
         int baseline = 0;
         cv::Size labelSize = cv::getTextSize(
             label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
 
-        // 确保标签不会超出图像顶部
         int labelY = y1;
         if (labelY - labelSize.height - 5 < 0) {
             labelY = y2 + labelSize.height + 5;
         }
 
-        // 绘制标签背景
         cv::rectangle(
             image,
             cv::Point(x1, labelY - labelSize.height - 5),
@@ -355,7 +358,6 @@ void Widget::drawDetections(cv::Mat& image)
             cv::FILLED
         );
 
-        // 绘制标签文字
         cv::putText(
             image,
             label,
@@ -374,27 +376,26 @@ void Widget::drawDetections(cv::Mat& image)
 
 void Widget::startCamera()
 {
-    if (camera) {
-        // 相机已初始化，直接打开
-        if (camera->Camera_Open()) {
-            isDetecting = true;
-            cameraTimer->start();
-            updateStatus("相机已启动，实时检测中...");
-        } else {
-            QMessageBox::warning(this, "相机错误", "无法打开相机设备！");
-        }
+    if (isDetecting) return;
+
+    if (modelLoaded && visioner && camera) {
+        // 模型已加载: visioner->init_system() 已初始化并打开了相机
+        // 只需启动定时器即可开始采集和检测
+        isDetecting = true;
+        cameraTimer->start();
+        updateStatus("相机已启动，实时检测中...");
         return;
     }
 
-    // 初始化相机
+    // 未加载模型: 手动初始化并打开相机（纯预览模式）
     updateStatus("正在初始化相机...");
     QApplication::processEvents();
 
-    camera = new HikCamera(0);
+    if (!camera) {
+        camera = new HikCamera(0);
+    }
 
     if (!camera->Camera_Init()) {
-        delete camera;
-        camera = nullptr;
         QMessageBox::warning(this, "相机错误", "相机初始化失败！请检查相机连接。");
         updateStatus("相机初始化失败");
         return;
@@ -403,13 +404,7 @@ void Widget::startCamera()
     if (camera->Camera_Open()) {
         isDetecting = true;
         cameraTimer->start();
-        updateStatus("相机已启动，实时检测中...");
-
-        // 如果模型已加载，启用 YOLO 检测
-        if (modelLoaded) {
-            ui->yoloDetectBtn->setEnabled(true);
-            ui->yoloDetectMiniBtn->setEnabled(true);
-        }
+        updateStatus("相机已启动");
     } else {
         QMessageBox::warning(this, "相机错误", "无法打开相机设备！");
         updateStatus("相机打开失败");
@@ -424,10 +419,9 @@ void Widget::stopCamera()
 
     isDetecting = false;
 
-    if (camera) {
-        camera->Camera_Close();
-    }
-
+    // 注意: 不关闭相机设备, 因为:
+    //   - 若模型已加载, 相机由 visioner 管理生命周期
+    //   - 相机资源在 Widget 析构时统一释放
     updateStatus("相机已停止");
 }
 
@@ -439,31 +433,31 @@ void Widget::processCameraFrame()
     if (camera->Image_Get(frame, 100)) {
         if (frame.empty()) return;
 
-        // 更新显示
-        processedImage = frame.clone();
         originalImage = frame.clone();
         imageLoaded = true;
 
-        // 如果模型已加载，执行自动检测
+        // 如果模型已加载, 执行自动 YOLO 检测
         if (modelLoaded && visioner) {
-            cv::Mat detectFrame = frame.clone();
             detectionResults.clear();
 
-            if (visioner->detect_once(detectFrame, detectionResults)) {
-                drawDetections(detectFrame);
-                displayImage(detectFrame);
-                processedImage = detectFrame.clone();
+            // detect_once 内部会绘制检测框
+            if (visioner->detect_once(frame, detectionResults)) {
+                displayImage(frame);
+                processedImage = frame.clone();
             } else {
                 displayImage(frame);
+                processedImage = frame.clone();
             }
         } else {
+            // 纯相机预览模式
             displayImage(frame);
+            processedImage = frame.clone();
         }
     }
 }
 
 // ============================================================
-//  原有功能: 开始/停止 (改为相机控制)
+//  开始/停止 按钮
 // ============================================================
 
 void Widget::on_startBtn_clicked()
@@ -474,8 +468,6 @@ void Widget::on_startBtn_clicked()
     ui->stopBtn->setEnabled(true);
     ui->loadImageBtn->setEnabled(false);
     ui->loadModelBtn->setEnabled(false);
-
-    // 右侧面板的快捷按钮也禁用
     ui->loadModelMiniBtn->setEnabled(false);
 }
 
@@ -803,7 +795,6 @@ void Widget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
 
-    // 窗口大小变化时重新显示图像
     if (imageLoaded && !processedImage.empty()) {
         displayImage(processedImage);
     }
@@ -826,6 +817,6 @@ cv::Mat Widget::convertToQtFormat(const cv::Mat& image)
 void Widget::initComponents()
 {
     // 组件初始化 - 在需要时由具体功能触发初始化
-    // 相机在 startCamera() 中延迟初始化
+    // 相机在 loadYOLOModel() 或 startCamera() 中延迟初始化
     // YOLO 模型在 loadYOLOModel() 中初始化
 }
