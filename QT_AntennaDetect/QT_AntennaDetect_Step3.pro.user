@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 4.6.2, 2026-05-13T10:35:55. -->
+<!-- Written by QtCreator 4.6.2, 2026-05-13T23:00:02. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -285,8 +285,8 @@
     <value type="int" key="PE.EnvironmentAspect.Base">2</value>
     <valuelist type="QVariantList" key="PE.EnvironmentAspect.Changes"/>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DefaultDisplayName">QT_AntennaDetect_Step3</value>
-    <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName"></value>
-    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">Qt4ProjectManager.Qt4RunConfiguration:C:/Users/Admin/Desktop/visual_recognition/Project_Code/RK3568_MyLinuxProject_QT_qmake/QT_AntennaDetect/QT_AntennaDetect_Step3.pro</value>
+    <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">QT_AntennaDetect_Step32</value>
+    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">Qt4ProjectManager.Qt4RunConfiguration:C:/Users/Admin/Desktop/visual_recognition/Project_Code/RK3568_MyLinuxProject_QT_qmake/Git_Code/QT_AntennaDetect/QT_AntennaDetect/QT_AntennaDetect_Step3.pro</value>
     <value type="bool" key="QmakeProjectManager.QmakeRunConfiguration.UseLibrarySearchPath">true</value>
     <value type="QString" key="Qt4ProjectManager.Qt4RunConfiguration.CommandLineArguments"></value>
     <value type="QString" key="Qt4ProjectManager.Qt4RunConfiguration.ProFile">QT_AntennaDetect_Step3.pro</value>

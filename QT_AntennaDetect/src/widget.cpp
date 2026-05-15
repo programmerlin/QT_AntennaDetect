@@ -81,7 +81,7 @@ Widget::Widget(QWidget *parent) :
 
     // 初始化相机定时器（用于实时检测）
     cameraTimer = new QTimer(this);
-    cameraTimer->setInterval(33); // ~30fps
+    cameraTimer->setInterval(100); // ~10fps
     connect(cameraTimer, &QTimer::timeout, this, &Widget::processCameraFrame);
 }
 

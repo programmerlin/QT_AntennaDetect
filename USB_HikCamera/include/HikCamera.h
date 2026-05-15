@@ -20,123 +20,123 @@
 #include "ThreadSafeQueue.h"
 
 /**
- * @brief ���״̬ǿ����ö��
+ * @brief 相机状态枚举
  */
 enum class CameraStatus {
-    WAIT_FOR_INIT = 0, ///< �ȴ���ʼ��
-    INITED,            ///< �ѳ�ʼ��
-    OPENED,            ///< �Ѵ򿪲�����ȡ��
-    CLOSED             ///< �ѹر�
+    WAIT_FOR_INIT = 0, ///< 等待初始化
+    INITED,            ///< 已初始化
+    OPENED,            ///< 已打开并开始读取
+    CLOSED             ///< 已关闭
 };
 
 class HikCamera
 {
 public:
     /*
-        * @brief: ���캯��
-        * @param cameraIndex: ����豸�ţ�Ĭ����0
+        * @brief: 构造函数
+        * @param cameraIndex: 相机设备号，默认为0
     */
     explicit HikCamera(int cameraIndex);
     /*
-        * @brief: ��������
+        * @brief: 析构函数
     */
     ~HikCamera();
 
-    /*ʹ��Rule of Five�淶����Ϊ�漰���ײ�Ӳ��������̣߳���ֹ�������ƶ�*/
+    /*使用Rule of Five规范，因为涉及底层硬件资源且涉及多线程，防止资源被意外移动或复制*/
     HikCamera(const HikCamera&) = delete;
     HikCamera& operator=(const HikCamera&) = delete;
     HikCamera(HikCamera&&) = delete;
     HikCamera& operator=(HikCamera&&) = delete;
 
     /*
-        * @brief: ��ʼ����������ò�����
-        * @return: ��ʼ���ɹ�����true��ʧ�ܷ���false
+        * @brief: 初始化相机并配置参数
+        * @return: 初始化成功返回true，失败返回false
     */
     bool Camera_Init();
 
     /*
-        * @brief: ������豸��׼����ʼ�ɼ�
-        * @return: �򿪳ɹ�����true��ʧ�ܷ���false
+        * @brief: 打开设备并准备开始采集
+        * @return: 打开成功返回true，失败返回false
     */
     bool Camera_Open();
 
     /*
-        * @brief: ��ȡͼ�����ݣ�������Ҫ���ڲ������ɼ��߳�
-        * @return: ��ȡ�ɹ�����true��ʧ�ܷ���false
+        * @brief: 获取图像数据，通常需要在内部采集线程中调用
+        * @return: 获取成功返回true，失败返回false
     */
-    bool Image_Get(cv::Mat& img, unsigned int nMsec); //ͨ���������ݻ�ȡ��ͼ�����ݣ����ⲻ��Ҫ�Ŀ���
+    bool Image_Get(cv::Mat& img, unsigned int nMsec); //通过同步方式获取图像数据，此不需要调用
 
     /*
-        * @brief: ��ͼ������ת��ΪOpenCV��Mat��ʽ
-        * @param stImageInfo: ͼ����Ϣ
-        * @param pData: ͼ������ָ��
-        * @param dstImage: Ŀ��Matͼ��
-        * @return: ת���ɹ�����true��ʧ�ܷ���false
+        * @brief: 将图像数据转换为OpenCV的Mat格式
+        * @param stImageInfo: 图像信息
+        * @param pData: 图像数据指针
+        * @param dstImage: 目标Mat图像
+        * @return: 转换成功返回true，失败返回false
     */
     bool convert_to_mat(MV_FRAME_OUT_INFO_EX& stImageInfo, std::unique_ptr<uint8_t[]>& pData, cv::Mat& dstImage);
     
     /*
-        * @brief: �ر�����豸���ͷ���Դ
-        * @return: �رճɹ�����true��ʧ�ܷ���false
+        * @brief: 关闭设备并释放资源
+        * @return: 关闭成功返回true，失败返回false
     */
     bool Camera_Close();
 
     /**
-     * @brief �����첽ץͼ�ص�ģʽ��ʹ�ܱ�־
+     * @brief 设置异步抓取图像的回调模式使用标志
      */
     void open_grab_callback();
 
     /**
-     * @brief ���� RGA Ӳ�����ٵĺ�̨�ַ��߳�
-     * @return true �ɹ� | false ʧ��
+     * @brief 创建RGA硬件加速的后台转换线程
+     * @return true 成功 | false 失败
      */
     bool start_rga_thread();
 
     /**
-     * @brief ��ȫֹͣ������ RGA �ַ��߳�
+     * @brief 完全停止并清理RGA转换线程
      */
     void stop_rga_thread();
 
-    /* --- �����Ķ������ڴ����Դ --- */
-    // �����ⲿҵ��㣨�� AntennaVisioner��ֱ�ӽ����Ļ�����ʩ
-    ThreadSafeQueue<DmaBuffer_t*> yoloTaskQueue; ///< ��������� YOLO ����������� (װ�� RGB ����)
-    DmaBufferPool sourcePool;                    ///< Դͼ�ڴ�� (������ YUYV ԭʼ����)
-    DmaBufferPool yoloPool;                      ///< YOLO �ڴ�� (��� RGA ת����� RGB ����)
+    /* --- 引擎使用的内存资源 --- */
+    // 留给外部业务（如 AntennaVisioner）直接进行处理的接口
+    ThreadSafeQueue<DmaBuffer_t*> yoloTaskQueue; ///< 引擎生成的 YOLO 任务队列 (封装 RGB 图像)
+    DmaBufferPool sourcePool;                    ///< 源图像内存 (存储 YUYV 原始图像)
+    DmaBufferPool yoloPool;                      ///< YOLO 内存 (经 RGA 转换的 RGB 图像)
 
 private:
     /**
-     * @brief ���� SDK �ײ�ץͼ�ص����� (��̬��Ա)
-     * @param pstFrame ֡������Ϣ
-     * @param pUser ͸�����û�ָ�� (���� USBHikvisioner ʵ���� this ָ��)
-     * @param bAutoFree �Ƿ��ɵײ� SDK �Զ��ͷ��ڴ�
+     * @brief SDK底层抓取图像的回调函数 (静态成员)
+     * @param pstFrame 帧数据信息
+     * @param pUser 用户传入指针 (指向 USBHikvisioner 实例的 this 指针)
+     * @param bAutoFree 是否由底层SDK自动释放内存
      */
     static void __stdcall image_callback_ex2(MV_FRAME_OUT* pstFrame, void *pUser, bool bAutoFree);
 
     /**
-     * @brief RGA �첽������ת�����̱߳��庯��
+     * @brief RGA异步格式转换的线程函数体
      */
     void rga_dispatch_thread_func();
 
     /**
-     * @brief �ڲ����� RGA Ӳ��ʵ�� YUYV �� RGB ��ת��������
-     * @param srcBuf Դ�� DMA Buffer
-     * @param dstBuf Ŀ��� DMA Buffer
-     * @return true ת���ɹ� | false ת��ʧ��
+     * @brief 内部使用RGA硬件实现YUYV转RGB的转换函数
+     * @param srcBuf 源 DMA Buffer
+     * @param dstBuf 目标 DMA Buffer
+     * @return true 转换成功 | false 转换失败
      */
     bool rga_YUV422_to_RGB888(DmaBuffer_t* srcBuf, DmaBuffer_t* dstBuf);
 
-    /* --- ˽�г�Ա���� --- */
-    int cameraDeviceIndex_;                   ///< ����豸����
-    void* deviceHandle_;                      ///< ���� SDK �豸���
-    std::unique_ptr<uint8_t[]> pData_;        ///< ��ѯģʽ�µ����ݻ��� (��ռ����ָ��)
-    unsigned int nPayloadSize_;               ///< ��֡��������غɴ�С(��ǰ������ÿ֡���ݴ�С����λ���ֽ�)
-    MV_FRAME_OUT_INFO_EX stImageInfo_;        ///< ͼ�������Ϣ�ṹ��
-    CameraStatus cameraStatus_;               ///< ��ǰ���״̬
-    bool openGrabCallback_;                   ///< �Ƿ������˻ص�ģʽ���
+    /* --- 私有成员变量 --- */
+    int cameraDeviceIndex_;                   ///< 相机设备索引
+    void* deviceHandle_;                      ///< 海康 SDK 设备句柄
+    std::unique_ptr<uint8_t[]> pData_;        ///< 轮询模式下的数据缓存 (独占智能指针)
+    unsigned int nPayloadSize_;               ///< 单帧数据最大载荷大小
+    MV_FRAME_OUT_INFO_EX stImageInfo_;        ///< 图像输出信息结构体
+    CameraStatus cameraStatus_;               ///< 当前相机状态
+    bool openGrabCallback_;                   ///< 是否启用了回调模式标记
 
-    std::queue<DmaBuffer_t*> rgaTaskQueue_;   ///< RGA �̵߳��ڲ��������
-    std::mutex queueMutex_;                   ///< ���ж�д������
-    std::condition_variable queueCv_;         ///< ���л�����������
-    std::atomic<bool> RGAisRunning_{false};      ///< RGA �߳����б�־λ
-    std::thread rgaThread_;                   ///< RGA �������̶߳���
+    std::queue<DmaBuffer_t*> rgaTaskQueue_;   ///< RGA 线程的内部输入队列
+    std::mutex queueMutex_;                   ///< 队列读写互斥锁
+    std::condition_variable queueCv_;         ///< 队列唤醒条件变量
+    std::atomic<bool> isRunning_{false};      ///< RGA 线程运行标志位
+    std::thread rgaThread_;                   ///< RGA 消费者线程对象
 };
