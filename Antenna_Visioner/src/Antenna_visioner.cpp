@@ -49,7 +49,7 @@ Antenna_Visioner::~Antenna_Visioner()
     }
 }
 
-bool Antenna_Visioner::init_system() 
+bool Antenna_Visioner::init_system()
 {
     int ret;
 
@@ -62,29 +62,30 @@ bool Antenna_Visioner::init_system()
     }
 
     /* 初始化 RKNN 模型 */
-    ret = init_yolov8_model(modelPath_.c_str(), &rknnAppCtx_);//将模型信息传入到 rknnAppCtx_ 结构体中
+    ret = init_yolov8_model(modelPath_.c_str(), &rknnAppCtx_);
     if(ret != 0){
         printf("Initial yolov8 model failed! ret = %d model_path = %s\n", ret, modelPath_);
         goto fail_to_init_model;
     }
-    
-    bufSize_ = width_ * height_ * 3; // RGB888 每像素3字节
+
+    bufSize_ = width_ * height_ * 3;
     ret = dma_buf_alloc(DMA_HEAP_DMA32_UNCACHE_PATCH, bufSize_, &dmaFd_, &virtAddr_);
     if(ret < 0 || virtAddr_ == nullptr) {
         std::cerr << "Error: Failed to allocate DMA buffer!" << std::endl;
         return false;
     }
 
-    /* 初始化 cv::Mat，方便后续使用 */
     rgaMat_ = cv::Mat(height_, width_, CV_8UC3, virtAddr_);
     printf("RGA Mat initialized successfully.\n");
 
-    /*初始化并打开相机*/
+    /* 初始化并打开相机（只分配DMA池和注册回调，不启动取流）*/
+    HikCamera_->open_grab_callback();
     if (!HikCamera_->Camera_Init() || !HikCamera_->Camera_Open()) {
         printf("Camera Init Failed!\n");
         return false;
     }
 
+    printf("[init_system] Camera ready. (grabbing will start when user clicks Start)\n");
     return true;
 
 fail_to_init_model:

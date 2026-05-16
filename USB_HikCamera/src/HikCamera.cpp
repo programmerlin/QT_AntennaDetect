@@ -235,39 +235,61 @@ bool HikCamera::Camera_Open()
         return false;
     }
 
-    // 注册图像回调函数，开启RGA线程和预分配DMA内存池，如果注册回调成功的话
+    // 注册图像回调函数和预分配DMA内存池（仅回调模式）
     if(openGrabCallback_){
-        if(!sourcePool.alloc_pool(4, stWidth.nCurValue, stHeight.nCurValue, BufferFormat::YUV422)) return false;//若缓存池分配失败，直接返回错误，不继续往下执行注册回调和启动线程等操作，避免资源浪费和潜在的崩溃风险
-        if(!yoloPool.alloc_pool(4, 640, 640, BufferFormat::RGB888)) return false;//同理，缓存池分配失败直接返回错误
+        if(!sourcePool.alloc_pool(4, stWidth.nCurValue, stHeight.nCurValue, BufferFormat::YUV422)) return false;
+        if(!yoloPool.alloc_pool(4, 640, 640, BufferFormat::RGB888)) return false;
 
-        start_rga_thread(); //开始rga线程，准备异步转换图像格式
-
+        // 注意: RGA线程在 start_grabbing() 中启动, 此处仅注册回调
         nRet = MV_CC_RegisterImageCallBackEx2(deviceHandle_, HikCamera::image_callback_ex2, this, true);
         if(MV_OK != nRet) {
             printf("Register image callback failed! nRet [0x%x]\n", nRet);
-            stop_rga_thread(); //注册回调失败，停止RGA线程
-            sourcePool.destroy_pool(); //销毁源图像内存池
-            yoloPool.destroy_pool(); //销毁YOLO内存池
-            MV_CC_CloseDevice(deviceHandle_); //关闭设备
+            sourcePool.destroy_pool();
+            yoloPool.destroy_pool();
+            MV_CC_CloseDevice(deviceHandle_);
             return false;
         }
     }
 
-        // 开始取流
-        nRet = MV_CC_StartGrabbing(deviceHandle_);
-        if (MV_OK != nRet)
-        {
-            printf("MV_CC_StartGrabbing fail! nRet [%x]\n", nRet);
-            if(openGrabCallback_){
-                stop_rga_thread(); //取流失败，停止RGA线程
-                sourcePool.destroy_pool(); //销毁源图像内存池
-                yoloPool.destroy_pool(); //销毁YOLO内存池
-                MV_CC_CloseDevice(deviceHandle_); //关闭设备
-            }
-            return false;
-        }
-        cameraStatus_ = CameraStatus::OPENED;   //强制设置枚举为打开状态
-        return true;
+    cameraStatus_ = CameraStatus::OPENED;   //强制设置枚举为打开状态
+    printf("[Camera_Open] Camera ready (grabbing not started yet)\n");
+    return true;
+}
+
+//函数用于从RGA转换队列中获取最新的RGB888图像帧，适用于回调模式
+bool HikCamera::get_converted_frame(cv::Mat& rgbImage, unsigned int timeoutMs)
+{
+    if (cameraStatus_ != CameraStatus::OPENED) {
+        return false;
+    }
+
+    DmaBuffer_t* latest = nullptr;
+    DmaBuffer_t* temp = nullptr;
+
+    // 获取最新的一帧（丢弃队列中积压的旧帧，保证实时性）
+    if (!yoloTaskQueue.try_pop(latest)) {
+        return false;  // 当前无可用帧
+    }
+
+    // 继续弹出队列中剩余的旧帧并释放，只保留最新的一帧
+    while (yoloTaskQueue.try_pop(temp)) {
+        yoloPool.release_buffer(latest);  // 释放旧帧
+        latest = temp;                     // 更新为较新的帧
+    }
+
+    if (!latest || !latest->virtAddr) {
+        if (latest) yoloPool.release_buffer(latest);
+        return false;
+    }
+
+    // 将 DMA 缓冲区的 RGB 数据深拷贝到输出 Mat
+    cv::Mat dmaMat(latest->height, latest->width, CV_8UC3, latest->virtAddr);
+    dmaMat.copyTo(rgbImage);
+
+    // 释放 DMA 缓冲区回内存池
+    yoloPool.release_buffer(latest);
+
+    return true;
 }
 
 //图像获取函数，适用于同步获取图像的场景（不使用回调模式时调用）
@@ -327,24 +349,23 @@ bool HikCamera::convert_to_mat(MV_FRAME_OUT_INFO_EX& stImageInfo, std::unique_pt
 }
 
 bool HikCamera::Camera_Close()
-{   
+{
     int nRet;
-    if (cameraStatus_ != CameraStatus::CLOSED) {
+    if (cameraStatus_ == CameraStatus::CLOSED) {
         printf("Camera has been closed already.\n");
         return true;
     }
 
-    if(cameraStatus_ != CameraStatus::WAIT_FOR_INIT || cameraStatus_ != CameraStatus::INITED) {
-        printf("Camera needs to been opened.\n");
+    if (cameraStatus_ != CameraStatus::OPENED) {
+        printf("Camera needs to be opened.\n");
         return false;
     }
 
-    // 停止取流
+    // 停止取流（可能已被 stop_grabbing 停止，忽略重複停止的错误）
     nRet = MV_CC_StopGrabbing(deviceHandle_);
     if (MV_OK != nRet)
     {
-        printf("Stop Grabbing fail! nRet [0x%x]\n", nRet);
-        return false;
+        printf("[Camera_Close] MV_CC_StopGrabbing: nRet [0x%x] (may be already stopped)\n", nRet);
     }
 
     // 关闭设备
@@ -356,14 +377,22 @@ bool HikCamera::Camera_Close()
     }
 
     if(openGrabCallback_){
-        stop_rga_thread(); //停止RGA线程，确保没有线程在访问内存池中的DMA Buffer了
+        stop_rga_thread(); //停止RGA线程（如果已停止则无操作）
         /* 清空RGA任务队列 */
-        while (!rgaTaskQueue_.empty())
         {
             std::lock_guard<std::mutex> lock(queueMutex_);
-            rgaTaskQueue_.pop(); // 弹出RGA线程任务队列中的任务，丢弃未处理的图像数据
+            while (!rgaTaskQueue_.empty())
+            {
+                rgaTaskQueue_.pop();
+            }
         }
-        
+
+        /* 清空YOLO输出队列，将DMA Buffer归还内存池 */
+        DmaBuffer_t* pendingBuf = nullptr;
+        while (yoloTaskQueue.try_pop(pendingBuf)) {
+            if (pendingBuf) yoloPool.release_buffer(pendingBuf);
+        }
+
         sourcePool.destroy_pool(); //销毁源图像内存池
         yoloPool.destroy_pool(); //销毁YOLO内存池
     }
@@ -377,27 +406,85 @@ void HikCamera::open_grab_callback()
     openGrabCallback_ = true;
 }
 
+bool HikCamera::start_grabbing()
+{
+    if (cameraStatus_ != CameraStatus::OPENED) {
+        printf("[start_grabbing] Camera not opened.\n");
+        return false;
+    }
+
+    // 启动RGA线程（如果未运行）
+    if (openGrabCallback_ && !isRunning_) {
+        start_rga_thread();
+    }
+
+    // 开始取流
+    int nRet = MV_CC_StartGrabbing(deviceHandle_);
+    if (MV_OK != nRet) {
+        printf("[start_grabbing] MV_CC_StartGrabbing fail! nRet [0x%x]\n", nRet);
+        if (openGrabCallback_ && isRunning_) {
+            stop_rga_thread();
+        }
+        return false;
+    }
+
+    printf("[start_grabbing] Grabbing started.\n");
+    return true;
+}
+
+void HikCamera::stop_grabbing()
+{
+    if (cameraStatus_ != CameraStatus::OPENED) {
+        return;
+    }
+
+    // 1. 停止取流（阻止新回调触发）
+    int nRet = MV_CC_StopGrabbing(deviceHandle_);
+    if (MV_OK != nRet) {
+        printf("[stop_grabbing] MV_CC_StopGrabbing fail! nRet [0x%x]\n", nRet);
+    }
+
+    // 2. 停止RGA线程（会处理完rgaTaskQueue_中剩余项并释放source buffer）
+    if (openGrabCallback_) {
+        stop_rga_thread();
+
+        // 3. 清空yoloTaskQueue中未被消费的帧
+        DmaBuffer_t* buf = nullptr;
+        int drained = 0;
+        while (yoloTaskQueue.try_pop(buf)) {
+            yoloPool.release_buffer(buf);
+            drained++;
+        }
+        if (drained > 0) {
+            printf("[stop_grabbing] Drained %d unconsumed frames from yoloTaskQueue.\n", drained);
+        }
+    }
+
+    printf("[stop_grabbing] Grabbing stopped.\n");
+}
+
 bool HikCamera::start_rga_thread()
 {
-    if(RGAisRunning_){
+    if(isRunning_){
         printf("RGA thread is already running.\n");
         return true;
     }
 
-    RGAisRunning_ = true;
+    isRunning_ = true;
     rgaThread_ = std::thread(&HikCamera::rga_dispatch_thread_func, this);
     printf("RGA thread started.\n");
+    fflush(stdout); // 确保立即刷新到终端
     return true;
 }
 
 void HikCamera::stop_rga_thread()
 {
-    if (!RGAisRunning_) {
+    if (!isRunning_) {
         printf("RGA thread is not running.\n");
         return;
     }
 
-    RGAisRunning_ = false;
+    isRunning_ = false;
     queueCv_.notify_all(); //通知RGA线程退出等待状态，尽快响应停止请求
 
     if (rgaThread_.joinable()) {
@@ -409,12 +496,12 @@ void HikCamera::stop_rga_thread()
 //RGA线程函数体，持续监听RGA任务队列，执行图像格式转换，并将转换后的图像放入YOLO任务队列供引擎使用
 void HikCamera::rga_dispatch_thread_func()
 {
-    while(RGAisRunning_){
+    while(isRunning_){
         DmaBuffer_t* srcBuffer = nullptr; //从RGA任务队列中获取一块待转换的源DMA Buffer，注意这里的等待机制是条件变量，只有当队列非空或者接收到停止信号时才会被唤醒，避免了无谓的CPU占用和忙等待
         {
             std::unique_lock<std::mutex> lock(queueMutex_);
-            queueCv_.wait(lock, [this](){ return !rgaTaskQueue_.empty() || !RGAisRunning_; });//rgaTaskQueue_非空或者RGA线程停止标志被置位时唤醒线程继续执行
-            if (!RGAisRunning_ && rgaTaskQueue_.empty()) break; //如果线程被要求停止且队列已经空了，直接退出线程循环
+            queueCv_.wait(lock, [this](){ return !rgaTaskQueue_.empty() || !isRunning_; });//rgaTaskQueue_非空或者RGA线程停止标志被置位时唤醒线程继续执行
+            if (!isRunning_ && rgaTaskQueue_.empty()) break; //如果线程被要求停止且队列已经空了，直接退出线程循环
             srcBuffer = rgaTaskQueue_.front();
             rgaTaskQueue_.pop();
         }
@@ -426,17 +513,64 @@ void HikCamera::rga_dispatch_thread_func()
                 //  调用RGA硬件加速的函数将YUYV格式的源图像转换为RGB888格式的目标图像，转换后的数据直接存储在dstBuffer指向的内存中，避免了额外的内存拷贝，提高效率
                 bool rgaSuccess = rga_YUV422_to_RGB888(srcBuffer, dstBuffer);
                 if (rgaSuccess) {
-                    std::lock_guard<std::mutex> lock(queueMutex_); 
-                    rgaTaskQueue_.push(dstBuffer); //将转换后的图像放入RGA线程任务队列，等待后续处理
+                    printf("[RGA] Hardware conversion OK -> push to yoloTaskQueue\n");
+                    fflush(stdout);
+                    yoloTaskQueue.push(dstBuffer); //将转换后的RGB图像放入YOLO任务队列，等待引擎推理
                 } else {
-                    printf("RGA conversion failed for current buffer.\n");
-                    yoloPool.release_buffer(dstBuffer); //转换失败，释放目标DMA Buffer回内存池，避免内存泄漏
+                    printf("[RGA] Hardware conversion FAILED, trying CPU fallback...\n");
+                    fflush(stdout);
+                    // CPU fallback: SDK软件YUYV→RGB + OpenCV letterbox缩放
+                    try {
+                        int fullRgbSize = srcBuffer->width * srcBuffer->height * 3;
+                        std::vector<uint8_t> fullRgb(fullRgbSize);
+
+                        MV_CC_PIXEL_CONVERT_PARAM_EX stConvertParam = {0};
+                        stConvertParam.nWidth = srcBuffer->width;
+                        stConvertParam.nHeight = srcBuffer->height;
+                        stConvertParam.pSrcData = (unsigned char*)srcBuffer->virtAddr;
+                        stConvertParam.nSrcDataLen = srcBuffer->bufferSize;
+                        stConvertParam.enSrcPixelType = PixelType_Gvsp_YUV422_YUYV_Packed;
+                        stConvertParam.enDstPixelType = PixelType_Gvsp_RGB8_Packed;
+                        stConvertParam.pDstBuffer = fullRgb.data();
+                        stConvertParam.nDstBufferSize = fullRgbSize;
+
+                        int nRet = MV_CC_ConvertPixelTypeEx(deviceHandle_, &stConvertParam);
+                        if (MV_OK == nRet) {
+                            // Letterbox resize to dstBuffer dimensions
+                            cv::Mat fullRgbMat(srcBuffer->height, srcBuffer->width, CV_8UC3, fullRgb.data());
+                            cv::Mat dstMat(dstBuffer->height, dstBuffer->width, CV_8UC3, dstBuffer->virtAddr);
+                            dstMat = cv::Scalar(114, 114, 114);
+
+                            float scale = std::min((float)dstBuffer->width / srcBuffer->width,
+                                                    (float)dstBuffer->height / srcBuffer->height);
+                            int new_w = srcBuffer->width * scale;
+                            int new_h = srcBuffer->height * scale;
+                            int offset_x = (dstBuffer->width - new_w) / 2;
+                            int offset_y = (dstBuffer->height - new_h) / 2;
+
+                            cv::Mat resized;
+                            cv::resize(fullRgbMat, resized, cv::Size(new_w, new_h));
+                            resized.copyTo(dstMat(cv::Rect(offset_x, offset_y, new_w, new_h)));
+
+                            printf("[CPU Fallback] SDK conversion succeeded.\n");
+                            fflush(stdout);
+                            yoloTaskQueue.push(dstBuffer);
+                        } else {
+                            printf("[CPU Fallback] SDK conversion failed! nRet [0x%x]\n", nRet);
+                            fflush(stdout);
+                            yoloPool.release_buffer(dstBuffer);
+                        }
+                    } catch (const std::exception& e) {
+                        printf("CPU fallback exception: %s\n", e.what());
+                        yoloPool.release_buffer(dstBuffer);
+                    }
                 }
                 auto end_time = std::chrono::high_resolution_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
                 printf("RGA conversion time: %llums\n", duration.count());
             } else {
-                printf("No available buffer in YOLO pool, dropping current frame.\n");
+                printf("[RGA] No available buffer in YOLO pool, dropping current frame.\n");
+                fflush(stdout);
             }
             sourcePool.release_buffer(srcBuffer); //释放源DMA Buffer回内存池，避免内存泄漏
         }
@@ -479,11 +613,11 @@ bool HikCamera::rga_YUV422_to_RGB888(DmaBuffer_t* srcBuf, DmaBuffer_t* dstBuf)
         return false;
     }
 
-    /* 2. 包装 RGA Buffer */
-    rga_buffer_t rga_buf_src = wrapbuffer_handle(rga_handle_src, srcBuf->width, srcBuf->height, 
-                                                srcFmt, srcBuf->width, srcBuf->height);
-    rga_buffer_t rga_buf_dst = wrapbuffer_handle(rga_handle_dst, dstBuf->width, dstBuf->height,
-                                                dstFmt, dstBuf->width, dstBuf->height);
+    /* 2. 包装 RGA Buffer - 使用 wrapbuffer_handle_t(C链接, 参数确定: format在最后) 而非C++重载, 避免参数错位 */
+    rga_buffer_t rga_buf_src = wrapbuffer_handle_t(rga_handle_src, srcBuf->width, srcBuf->height,
+                                                   srcBuf->width, srcBuf->height, srcFmt);
+    rga_buffer_t rga_buf_dst = wrapbuffer_handle_t(rga_handle_dst, dstBuf->width, dstBuf->height,
+                                                   dstBuf->width, dstBuf->height, dstFmt);
 
     /* 3. 计算 Letterbox (等比例缩放) 参数 */
     float scale = std::min((float)dstBuf->width / srcBuf->width, 
@@ -533,6 +667,7 @@ void __stdcall HikCamera::image_callback_ex2(MV_FRAME_OUT* pstFrame, void *pUser
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     std::cout << "[time]: Data copy time: " << duration.count() << "ms." << std::endl;
+    std::cout << std::flush; // 确保回调输出立即刷新
 
     {
         std::lock_guard<std::mutex> lock(pThis->queueMutex_);

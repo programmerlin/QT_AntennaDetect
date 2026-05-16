@@ -194,9 +194,7 @@ bool Widget::loadYOLOModel()
             visioner = nullptr;
         }
 
-        // 重要: 创建相机对象 (但先不初始化)
-        // Antenna_Visioner::init_system() 内部会调用 Camera_Init() + Camera_Open()
-        // 所以此处只需 new HikCamera (状态为 WAIT_FOR_INIT), 不调用 init/open
+        // 创建相机对象 (但先不初始化)
         if (!camera) {
             camera = new HikCamera(0);
         }
@@ -209,11 +207,13 @@ bool Widget::loadYOLOModel()
             camera
         );
 
-        // init_system() 内部会:
-        //   1. 加载模型
-        //   2. 分配 DMA 缓冲区
-        //   3. 初始化并打开相机 (Camera_Init + Camera_Open)
-        return visioner->init_system();
+        // init_system(): 加载模型 + 分配DMA缓冲区 + 初始化相机(只注册回调不启动取流)
+        bool ret = visioner->init_system();
+        if (ret) {
+            // 暂停管线(已分配DMA池但未取流), 等点击"开始检测"才启动
+            camera->stop_grabbing();
+        }
+        return ret;
     } catch (const std::exception& e) {
         qDebug() << "loadYOLOModel exception:" << e.what();
         return false;
@@ -380,7 +380,12 @@ void Widget::startCamera()
 
     if (modelLoaded && visioner && camera) {
         // 模型已加载: visioner->init_system() 已初始化并打开了相机
-        // 只需启动定时器即可开始采集和检测
+        // 启动取流管线（RGA线程 + SDK取流）
+        if (!camera->start_grabbing()) {
+            QMessageBox::warning(this, "相机错误", "无法启动相机取流！");
+            updateStatus("相机启动失败");
+            return;
+        }
         isDetecting = true;
         cameraTimer->start();
         updateStatus("相机已启动，实时检测中...");
@@ -395,19 +400,28 @@ void Widget::startCamera()
         camera = new HikCamera(0);
     }
 
+    // 如果尚未初始化，执行完整初始化流程
     if (!camera->Camera_Init()) {
         QMessageBox::warning(this, "相机错误", "相机初始化失败！请检查相机连接。");
         updateStatus("相机初始化失败");
         return;
     }
 
-    if (camera->Camera_Open()) {
+    camera->open_grab_callback();  // 启用回调+RGA模式
+    if (!camera->Camera_Open()) {
+        QMessageBox::warning(this, "相机错误", "无法打开相机设备！");
+        updateStatus("相机打开失败");
+        return;
+    }
+
+    // 启动取流
+    if (camera->start_grabbing()) {
         isDetecting = true;
         cameraTimer->start();
         updateStatus("相机已启动");
     } else {
-        QMessageBox::warning(this, "相机错误", "无法打开相机设备！");
-        updateStatus("相机打开失败");
+        QMessageBox::warning(this, "相机错误", "无法启动相机取流！");
+        updateStatus("相机启动失败");
     }
 }
 
@@ -419,39 +433,59 @@ void Widget::stopCamera()
 
     isDetecting = false;
 
-    // 注意: 不关闭相机设备, 因为:
-    //   - 若模型已加载, 相机由 visioner 管理生命周期
-    //   - 相机资源在 Widget 析构时统一释放
+    // 暂停相机取流管线（停止RGA线程和SDK取流）
+    if (camera) {
+        camera->stop_grabbing();
+    }
+
     updateStatus("相机已停止");
 }
 
 void Widget::processCameraFrame()
 {
+    static int debugCounter = 0; // 用于周期打印调试信息
+
     if (!camera || !isDetecting) return;
 
     cv::Mat frame;
-    if (camera->Image_Get(frame, 100)) {
+    // 从RGA转换队列获取最新帧（已由硬件转换为RGB888格式）
+    if (camera->get_converted_frame(frame, 100)) {
         if (frame.empty()) return;
+
+        debugCounter = 0; // 取到帧，重置计数器
+
+        // RGA输出为RGB888，OpenCV标准为BGR → 通道转换
+        cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
 
         originalImage = frame.clone();
         imageLoaded = true;
 
-        // 如果模型已加载, 执行自动 YOLO 检测
+        // 如果模型已加载，执行自动 YOLO 检测
         if (modelLoaded && visioner) {
+            // 将帧数据拷贝到NPU可访问的DMA缓冲区，实现零拷贝推理
+            cv::Mat rgaMat = visioner->get_rga_mat();
+            frame.copyTo(rgaMat);
+
             detectionResults.clear();
 
             // detect_once 内部会绘制检测框
-            if (visioner->detect_once(frame, detectionResults)) {
-                displayImage(frame);
-                processedImage = frame.clone();
+            if (visioner->detect_once(rgaMat, detectionResults)) {
+                displayImage(rgaMat);
+                processedImage = rgaMat.clone();
             } else {
-                displayImage(frame);
-                processedImage = frame.clone();
+                displayImage(rgaMat);
+                processedImage = rgaMat.clone();
             }
         } else {
             // 纯相机预览模式
             displayImage(frame);
             processedImage = frame.clone();
+        }
+    } else {
+        // 未取到帧：每隔约2秒打印一次（仅调试用）
+        debugCounter++;
+        if (debugCounter % 20 == 1) {
+            printf("[processCameraFrame] No frame available for ~2s\n");
         }
     }
 }

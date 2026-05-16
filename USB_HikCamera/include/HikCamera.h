@@ -87,6 +87,14 @@ public:
     void open_grab_callback();
 
     /**
+     * @brief 从RGA转换队列获取最新的RGB888图像帧（回调模式专用）
+     * @param rgbImage 输出图像（RGB888格式，640x640）
+     * @param timeoutMs 超时时间（毫秒，当前实现为非阻塞轮询）
+     * @return 成功获取到帧返回true，无可用帧返回false
+     */
+    bool get_converted_frame(cv::Mat& rgbImage, unsigned int timeoutMs);
+
+    /**
      * @brief 创建RGA硬件加速的后台转换线程
      * @return true 成功 | false 失败
      */
@@ -96,6 +104,19 @@ public:
      * @brief 完全停止并清理RGA转换线程
      */
     void stop_rga_thread();
+
+    /**
+     * @brief 开始图像采集（启动RGA线程 + 开始取流）
+     * 与 stop_grabbing() 配对使用，实现管线的按需启停
+     * @return true 成功 | false 失败
+     */
+    bool start_grabbing();
+
+    /**
+     * @brief 停止图像采集（停止取流 + 停止RGA线程 + 清空队列）
+     * 暂停管线，释放CPU资源，保留DMA内存池和回调注册
+     */
+    void stop_grabbing();
 
     /* --- 引擎使用的内存资源 --- */
     // 留给外部业务（如 AntennaVisioner）直接进行处理的接口
