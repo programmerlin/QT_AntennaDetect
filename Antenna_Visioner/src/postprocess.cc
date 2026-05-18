@@ -25,15 +25,16 @@
 #include <vector>
 #define LABEL_NALE_TXT_PATH "./model/yolov8/antenna.txt"
 
-static char labelTxtPath[50];
+static char labelTxtPath[256];
 
 static char *labels[OBJ_CLASS_NUM];
 
-void set_label_path(const std::string& str) 
+void set_label_path(const std::string& str)
 {
     memset(labelTxtPath, 0, sizeof(labelTxtPath));
     strncpy(labelTxtPath, str.c_str(), sizeof(labelTxtPath) - 1);
-    printf("label path = %s", labelTxtPath);
+    printf("label path = %s\n", labelTxtPath);
+    fflush(stdout);
 }
 
 inline static int clamp(float val, int min, int max) { return val > min ? (val < max ? val : max) : min; }
@@ -63,6 +64,13 @@ static char *readLine(FILE *fp, char *buffer, int *len)
         i++;
     }
     buffer[i] = '\0';
+
+    // 去除末尾的 \r (兼容 Windows CRLF 换行符)
+    if (i > 0 && buffer[i - 1] == '\r') {
+        buffer[i - 1] = '\0';
+        i--;
+        buff_len--;
+    }
 
     *len = buff_len;
 
@@ -101,7 +109,12 @@ static int readLines(const char *fileName, char *lines[], int max_line)
 static int loadLabelName(const char *locationFilename, char *label[])
 {
     printf("load label %s\n", locationFilename);
-    readLines(locationFilename, label, OBJ_CLASS_NUM);
+    int cnt = readLines(locationFilename, label, OBJ_CLASS_NUM);
+    if (cnt <= 0) {
+        printf("read label file failed or empty, cnt=%d\n", cnt);
+        return -1;
+    }
+    printf("successfully loaded %d label(s), label[0]=%s\n", cnt, label[0] ? label[0] : "null");
     return 0;
 }
 

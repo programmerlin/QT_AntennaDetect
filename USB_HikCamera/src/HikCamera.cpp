@@ -136,9 +136,9 @@ bool HikCamera::Camera_Open()
         } else {
             nRet = MV_CC_SetFloatValue(deviceHandle_, "Gain", 24.0f); //手动设置增益为24dB
             if (MV_OK != nRet) {
-                printf("[Warning] Set manual Gain to 10dB fail! nRet [%x]\n", nRet);
+                printf("[Warning] Set manual Gain to 24dB fail! nRet [%x]\n", nRet);
             } else {
-                printf("[Config] Set manual Gain to 10dB success.\n");
+                printf("[Config] Set manual Gain to 24dB success.\n");
             }
         }
     }
