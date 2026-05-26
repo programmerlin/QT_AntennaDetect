@@ -23,9 +23,9 @@ namespace Ui {
 class Widget;
 }
 
-class Widget : public QWidget
+class Widget : public QWidget   //继承自 QWidget（QT中自带的写好的窗口类）的类Widget
 {
-    Q_OBJECT
+    Q_OBJECT    //宏定义，启用QT的信号与槽机制
 
 public:
     explicit Widget(QWidget *parent = nullptr);
@@ -90,8 +90,16 @@ protected:
 
     // YOLO检测方法
     void performYOLODetection(const cv::Mat& image);
-    void displayYOLOResults();
+    void displayYOLOResults(int srcW, int srcH);
     void drawDetections(cv::Mat& image);
+
+    // 真实世界坐标转换
+    cv::Mat homographyMatrix_;           // 透视变换矩阵 (3x3)
+    static constexpr int CAM_NATIVE_WIDTH = 2048;
+    static constexpr int CAM_NATIVE_HEIGHT = 1230;
+    static constexpr int MODEL_INPUT_SIZE = 640;
+    bool initCoordinateTransform();
+    bool pixelToRealWorld(float pixelX, float pixelY, int srcW, int srcH, float& worldX, float& worldY);
 
     // 图像处理方法
     bool loadImage(const QString& filePath);

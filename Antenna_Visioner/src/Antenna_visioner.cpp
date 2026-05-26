@@ -152,9 +152,14 @@ bool Antenna_Visioner::detect_once(cv::Mat& outputFrame, std::vector<DetectionRe
         object_detect_result *detResult = &(odResults.results[i]);
         
         DetectionResult resultItem;
-        resultItem.className = std::string(coco_cls_to_name(detResult->cls_id)); 
+        resultItem.className = std::string(coco_cls_to_name(detResult->cls_id));
         resultItem.classId = detResult->cls_id;
         resultItem.prop = detResult->prop;
+        // 填充边界框坐标（后处理已映射到源图像空间）
+        resultItem.box[0] = detResult->box.left;
+        resultItem.box[1] = detResult->box.top;
+        resultItem.box[2] = detResult->box.right;
+        resultItem.box[3] = detResult->box.bottom;
         outResults.push_back(resultItem);
 
         /* 简单的终端打印 */

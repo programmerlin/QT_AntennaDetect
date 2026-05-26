@@ -33,7 +33,9 @@ Widget::Widget(QWidget *parent) :
     ui->yoloDetectBtn->setEnabled(false);
     ui->yoloDetectMiniBtn->setEnabled(false);
 
-    // --- 连接按钮信号 ---
+    // --- 连接按钮信号 --- 
+    //QObject::connect(sender, &SenderClass::signalName, 
+    //             receiver, &ReceiverClass::slotName);
     connect(ui->startBtn, &QPushButton::clicked, this, &Widget::on_startBtn_clicked);
     connect(ui->stopBtn, &QPushButton::clicked, this, &Widget::on_stopBtn_clicked);
     connect(ui->loadImageBtn, &QPushButton::clicked, this, &Widget::on_loadImageBtn_clicked);
@@ -83,6 +85,9 @@ Widget::Widget(QWidget *parent) :
     cameraTimer = new QTimer(this);
     cameraTimer->setInterval(100); // ~10fps
     connect(cameraTimer, &QTimer::timeout, this, &Widget::processCameraFrame);
+
+    // 初始化真实世界坐标转换（标定数据）
+    initCoordinateTransform();
 }
 
 Widget::~Widget()
@@ -263,7 +268,7 @@ void Widget::performYOLODetection(const cv::Mat& image)
     // detect_once() 内部会:
     //   1. 执行 RKNN 推理
     //   2. 用 image_utils 的 draw_rectangle/draw_text 直接在图像上绘制检测框和标签
-    //   3. 填充 detectionResults (className, classId, prop; 但不填充 box[4])
+    //   3. 填充 detectionResults (className, classId, prop, box[4])
     bool success = visioner->detect_once(detectImage, detectionResults);
 
     qint64 elapsed = timer.elapsed();
@@ -275,8 +280,8 @@ void Widget::performYOLODetection(const cv::Mat& image)
         // 更新 processedImage 为带检测框的图像
         processedImage = detectImage.clone();
 
-        // 显示检测结果信息
-        displayYOLOResults();
+        // 显示检测结果信息（包含真实世界坐标转换）
+        displayYOLOResults(detectImage.cols, detectImage.rows);
 
         updateStatus(QString("YOLO检测完成，耗时 %1 ms").arg(elapsed));
     } else {
@@ -288,7 +293,7 @@ void Widget::performYOLODetection(const cv::Mat& image)
     }
 }
 
-void Widget::displayYOLOResults()
+void Widget::displayYOLOResults(int srcW, int srcH)
 {
     if (detectionResults.empty()) {
         ui->detectResultLabel->setText("未检测到目标");
@@ -296,12 +301,21 @@ void Widget::displayYOLOResults()
         return;
     }
 
-    // 更新检测结果标签
-    QString resultSummary = QString("检测到 %1 个目标").arg(detectionResults.size());
+    // 更新检测结果标签（显示第一个目标的真实坐标）
+    float firstCx = (detectionResults[0].box[0] + detectionResults[0].box[2]) / 2.0f;
+    float firstCy = (detectionResults[0].box[1] + detectionResults[0].box[3]) / 2.0f;
+    float wX, wY;
+    QString coordStr;
+    if (pixelToRealWorld(firstCx, firstCy, srcW, srcH, wX, wY)) {
+        coordStr = QString(" | 真实坐标: (%1, %2) mm").arg(wX, 0, 'f', 1).arg(wY, 0, 'f', 1);
+    }
+
+    QString resultSummary = QString("检测到 %1 个目标%2")
+                                .arg(detectionResults.size())
+                                .arg(coordStr);
     ui->detectResultLabel->setText(resultSummary);
 
-    // 更新详细结果文本框
-    // 注意: detect_once() 不填充 box[4] 坐标, 所以结果中不显示位置信息
+    // 更新详细结果文本框，包含真实世界坐标信息
     QString detail = "YOLO检测结果\n";
     detail += "━━━━━━━━━━━━━━━━━━\n\n";
     detail += QString("检测到 %1 个目标:\n\n").arg(detectionResults.size());
@@ -311,6 +325,19 @@ void Widget::displayYOLOResults()
         detail += QString("目标 %1:\n").arg(i + 1);
         detail += QString("  类别: %1\n").arg(QString::fromStdString(result.className));
         detail += QString("  置信度: %1%\n").arg(result.prop * 100, 0, 'f', 1);
+
+        // 检测框中心坐标（在当前源图像坐标系中）
+        float cx = (result.box[0] + result.box[2]) / 2.0f;
+        float cy = (result.box[1] + result.box[3]) / 2.0f;
+        detail += QString("  图像坐标: (%1, %2)\n").arg(cx, 0, 'f', 1).arg(cy, 0, 'f', 1);
+
+        // 真实物理世界坐标
+        float worldX, worldY;
+        if (pixelToRealWorld(cx, cy, srcW, srcH, worldX, worldY)) {
+            detail += QString("  真实坐标: (%1, %2) mm\n").arg(worldX, 0, 'f', 1).arg(worldY, 0, 'f', 1);
+        } else {
+            detail += QString("  真实坐标: (转换失败)\n");
+        }
         detail += "\n";
     }
 
@@ -319,7 +346,7 @@ void Widget::displayYOLOResults()
 
 // drawDetections 保留但不被 performYOLODetection 调用,
 // 因为 detect_once() 已使用 image_utils 在图像上绘制了检测框.
-// detect_once() 不填充 DetectionResult.box[4], 因此此函数使用 box 值前需确保其有效.
+// 注: detect_once() 现已填充 DetectionResult.box[4], 可直接使用.
 void Widget::drawDetections(cv::Mat& image)
 {
     if (image.empty()) return;
@@ -368,6 +395,78 @@ void Widget::drawDetections(cv::Mat& image)
             1
         );
     }
+}
+
+// ============================================================
+//  真实世界坐标转换（标定映射）
+// ============================================================
+
+bool Widget::initCoordinateTransform()
+{
+    // 4个角标定点：源图像坐标 (2048x1230 空间) → 真实物理世界坐标 (mm)
+    // 使用 getPerspectiveTransform（opencv_imgproc）需要精确4个点
+    cv::Point2f srcPts[4] = {
+        cv::Point2f(579.0f,   183.0f),   // 左上 → (-300, -300)
+        cv::Point2f(1234.5f,  183.0f),   // 右上 → (300, -300)
+        cv::Point2f(1234.5f,  850.0f),   // 右下 → (300, 300)
+        cv::Point2f(579.0f,   850.0f)    // 左下 → (-300, 300)
+    };
+    cv::Point2f dstPts[4] = {
+        cv::Point2f(-300.0f, -300.0f),   // 左上
+        cv::Point2f(300.0f,  -300.0f),   // 右上
+        cv::Point2f(300.0f,   300.0f),   // 右下
+        cv::Point2f(-300.0f,  300.0f)    // 左下
+    };
+
+    // 计算透视变换矩阵 (getPerspectiveTransform 在 opencv_imgproc 中，无需 calib3d)
+    homographyMatrix_ = cv::getPerspectiveTransform(srcPts, dstPts);
+
+    if (homographyMatrix_.empty()) {
+        qWarning() << "透视变换矩阵计算失败！";
+        return false;
+    }
+
+    qDebug() << "真实世界坐标转换初始化成功";
+    return true;
+}
+
+bool Widget::pixelToRealWorld(float pixelX, float pixelY, int srcW, int srcH,
+                               float& worldX, float& worldY)
+{
+    if (homographyMatrix_.empty()) {
+        return false;
+    }
+
+    float nativeX, nativeY;
+
+    // 判断检测框坐标所在的空间并进行相应转换
+    if (srcW == MODEL_INPUT_SIZE && srcH == MODEL_INPUT_SIZE) {
+        // 相机路径：坐标在 640x640 letterbox 空间中 → 还原到 2048x1230 原生空间
+        // letterbox 参数：scale = 640/2048 = 0.3125, 垂直居中, y_pad/2 = 128
+        float scale = (float)MODEL_INPUT_SIZE / CAM_NATIVE_WIDTH;
+        float scaledH = CAM_NATIVE_HEIGHT * scale;
+        float yPad = (MODEL_INPUT_SIZE - scaledH) / 2.0f;
+
+        nativeX = pixelX / scale;
+        nativeY = (pixelY - yPad) / scale;
+    } else {
+        // 文件加载路径：坐标已在原生分辨率空间（如 2048x1230）
+        nativeX = pixelX;
+        nativeY = pixelY;
+    }
+
+    // 应用透视变换得到真实物理世界坐标
+    std::vector<cv::Point2f> srcVec = {cv::Point2f(nativeX, nativeY)};
+    std::vector<cv::Point2f> dstVec;
+    cv::perspectiveTransform(srcVec, dstVec, homographyMatrix_);
+
+    if (dstVec.empty()) {
+        return false;
+    }
+
+    worldX = dstVec[0].x;
+    worldY = dstVec[0].y;
+    return true;
 }
 
 // ============================================================
@@ -468,13 +567,56 @@ void Widget::processCameraFrame()
 
             detectionResults.clear();
 
-            // detect_once 内部会绘制检测框
-            if (visioner->detect_once(rgaMat, detectionResults)) {
-                displayImage(rgaMat);
-                processedImage = rgaMat.clone();
+            // detect_once 内部会绘制检测框，同时填充 detectionResults（含 box[4] 坐标）
+            visioner->detect_once(rgaMat, detectionResults);
+
+            displayImage(rgaMat);
+            processedImage = rgaMat.clone();
+
+            // 实时显示检测结果中的真实世界坐标
+            if (!detectionResults.empty()) {
+                const auto& first = detectionResults[0];
+                float cx = (first.box[0] + first.box[2]) / 2.0f;
+                float cy = (first.box[1] + first.box[3]) / 2.0f;
+
+                float worldX, worldY;
+                QString coordInfo;
+                if (pixelToRealWorld(cx, cy, rgaMat.cols, rgaMat.rows, worldX, worldY)) {
+                    coordInfo = QString(" | 真实坐标: (%1, %2) mm")
+                                    .arg(worldX, 0, 'f', 1)
+                                    .arg(worldY, 0, 'f', 1);
+                }
+
+                ui->detectResultLabel->setText(
+                    QString("%1 %2%3")
+                        .arg(QString::fromStdString(first.className))
+                        .arg(first.prop * 100, 0, 'f', 1)
+                        .arg(coordInfo));
+
+                // 在结果文本框中也显示详细信息（第一个目标）
+                QString detail = QString("实时检测结果 — %1\n"
+                                         "━━━━━━━━━━━━━━━━━━\n\n"
+                                         "目标: %2\n"
+                                         "置信度: %3%\n"
+                                         "图像坐标: (%4, %5)\n")
+                                    .arg(QString::fromStdString(first.className))
+                                    .arg(QString::fromStdString(first.className))
+                                    .arg(first.prop * 100, 0, 'f', 1)
+                                    .arg(cx, 0, 'f', 1).arg(cy, 0, 'f', 1);
+
+                if (pixelToRealWorld(cx, cy, rgaMat.cols, rgaMat.rows, worldX, worldY)) {
+                    detail += QString("真实坐标: (%1, %2) mm\n")
+                                  .arg(worldX, 0, 'f', 1)
+                                  .arg(worldY, 0, 'f', 1);
+                }
+
+                if (detectionResults.size() > 1) {
+                    detail += QString("\n... 还有 %1 个目标\n").arg(detectionResults.size() - 1);
+                }
+
+                ui->resultsTextEdit->setText(detail);
             } else {
-                displayImage(rgaMat);
-                processedImage = rgaMat.clone();
+                ui->detectResultLabel->setText("未检测到目标");
             }
         } else {
             // 纯相机预览模式
@@ -498,7 +640,7 @@ void Widget::on_startBtn_clicked()
 {
     startCamera();
 
-    ui->startBtn->setEnabled(false);
+    ui->startBtn->setEnabled(false);//设置相应按钮状态（可用/禁用）
     ui->stopBtn->setEnabled(true);
     ui->loadImageBtn->setEnabled(false);
     ui->loadModelBtn->setEnabled(false);
