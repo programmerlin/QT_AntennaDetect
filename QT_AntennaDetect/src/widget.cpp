@@ -91,21 +91,21 @@ Widget::Widget(QWidget *parent) :
 
     // 初始化 ResMLP 模型（加载权重）
     resMLPLoaded_ = false;
-    QString resMLPWeightPath = QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+    QString resMLPWeightPath = QApplication::applicationDirPath() + "/model/ResMLP.weights";
     if (resMLP_.load(resMLPWeightPath.toStdString())) {
         resMLPLoaded_ = true;
         qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
         ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
     } else {
         // 也尝试相对于源代码目录的路径
-        resMLPWeightPath = QFileInfo("../ResMLP/model/ResMLP.weights").absoluteFilePath();
+        resMLPWeightPath = QFileInfo("model/ResMLP.weights").absoluteFilePath();
         if (resMLP_.load(resMLPWeightPath.toStdString())) {
             resMLPLoaded_ = true;
             qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
             ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
         } else {
             qWarning() << "[ResMLP] 模型加载失败，电压计算功能不可用:"
-                       << QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+                       << QApplication::applicationDirPath() + "/model/ResMLP.weights";
             // 不阻塞启动，电压计算将在检测时不可用
         }
     }
@@ -380,6 +380,14 @@ void Widget::displayYOLOResults(int srcW, int srcH)
                 detail += QString("    通道4: %1 V\n").arg(v[3], 0, 'f', 3);
                 float avg = (v[0] + v[1] + v[2] + v[3]) / 4.0f;
                 detail += QString("  平均电压: %1 V\n").arg(avg, 0, 'f', 3);
+
+                // 调试输出: 天线坐标及四路电压值
+                qDebug() << "[YOLO检测结果]"
+                         << "类别:" << QString::fromStdString(result.className)
+                         << "置信度:" << (result.prop * 100) << "%"
+                         << "图像坐标:" << cx << "," << cy
+                         << "真实坐标(mm):" << worldX << "," << worldY
+                         << "电压(V):" << v[0] << v[1] << v[2] << v[3];
             }
         } else {
             detail += QString("  真实坐标: (转换失败)\n");
@@ -677,6 +685,14 @@ void Widget::processCameraFrame()
                                       .arg(voltages[1], 0, 'f', 2)
                                       .arg(voltages[2], 0, 'f', 2)
                                       .arg(voltages[3], 0, 'f', 2);
+
+                    // 调试输出: 天线坐标及四路电压值
+                    qDebug() << "[检测结果]"
+                             << "类别:" << QString::fromStdString(first.className)
+                             << "置信度:" << (first.prop * 100) << "%"
+                             << "图像坐标:" << cx << "," << cy
+                             << "真实坐标(mm):" << worldX << "," << worldY
+                             << "电压(V):" << voltages[0] << voltages[1] << voltages[2] << voltages[3];
                 }
 
                 ui->detectResultLabel->setText(
