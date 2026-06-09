@@ -88,6 +88,27 @@ Widget::Widget(QWidget *parent) :
 
     // 初始化真实世界坐标转换（标定数据）
     initCoordinateTransform();
+
+    // 初始化 ResMLP 模型（加载权重）
+    resMLPLoaded_ = false;
+    QString resMLPWeightPath = QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+    if (resMLP_.load(resMLPWeightPath.toStdString())) {
+        resMLPLoaded_ = true;
+        qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
+        ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
+    } else {
+        // 也尝试相对于源代码目录的路径
+        resMLPWeightPath = QFileInfo("../ResMLP/model/ResMLP.weights").absoluteFilePath();
+        if (resMLP_.load(resMLPWeightPath.toStdString())) {
+            resMLPLoaded_ = true;
+            qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
+            ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
+        } else {
+            qWarning() << "[ResMLP] 模型加载失败，电压计算功能不可用:"
+                       << QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+            // 不阻塞启动，电压计算将在检测时不可用
+        }
+    }
 }
 
 Widget::~Widget()
@@ -306,16 +327,29 @@ void Widget::displayYOLOResults(int srcW, int srcH)
     float firstCy = (detectionResults[0].box[1] + detectionResults[0].box[3]) / 2.0f;
     float wX, wY;
     QString coordStr;
-    if (pixelToRealWorld(firstCx, firstCy, srcW, srcH, wX, wY)) {
+    bool hasCoord = pixelToRealWorld(firstCx, firstCy, srcW, srcH, wX, wY);
+    if (hasCoord) {
         coordStr = QString(" | 真实坐标: (%1, %2) mm").arg(wX, 0, 'f', 1).arg(wY, 0, 'f', 1);
     }
 
-    QString resultSummary = QString("检测到 %1 个目标%2")
+    // ResMLP 电压计算
+    QString voltageStr;
+    float voltages[4] = {0};
+    if (hasCoord && computeVoltages(wX, wY, voltages)) {
+        voltageStr = QString(" | 电压: %1/%2/%3/%4 V")
+                         .arg(voltages[0], 0, 'f', 2)
+                         .arg(voltages[1], 0, 'f', 2)
+                         .arg(voltages[2], 0, 'f', 2)
+                         .arg(voltages[3], 0, 'f', 2);
+    }
+
+    QString resultSummary = QString("检测到 %1 个目标%2%3")
                                 .arg(detectionResults.size())
-                                .arg(coordStr);
+                                .arg(coordStr)
+                                .arg(voltageStr);
     ui->detectResultLabel->setText(resultSummary);
 
-    // 更新详细结果文本框，包含真实世界坐标信息
+    // 更新详细结果文本框，包含真实世界坐标和电压信息
     QString detail = "YOLO检测结果\n";
     detail += "━━━━━━━━━━━━━━━━━━\n\n";
     detail += QString("检测到 %1 个目标:\n\n").arg(detectionResults.size());
@@ -335,6 +369,18 @@ void Widget::displayYOLOResults(int srcW, int srcH)
         float worldX, worldY;
         if (pixelToRealWorld(cx, cy, srcW, srcH, worldX, worldY)) {
             detail += QString("  真实坐标: (%1, %2) mm\n").arg(worldX, 0, 'f', 1).arg(worldY, 0, 'f', 1);
+
+            // ResMLP 电压输出
+            float v[4] = {0};
+            if (computeVoltages(worldX, worldY, v)) {
+                detail += QString("  移相电压:\n");
+                detail += QString("    通道1: %1 V\n").arg(v[0], 0, 'f', 3);
+                detail += QString("    通道2: %1 V\n").arg(v[1], 0, 'f', 3);
+                detail += QString("    通道3: %1 V\n").arg(v[2], 0, 'f', 3);
+                detail += QString("    通道4: %1 V\n").arg(v[3], 0, 'f', 3);
+                float avg = (v[0] + v[1] + v[2] + v[3]) / 4.0f;
+                detail += QString("  平均电压: %1 V\n").arg(avg, 0, 'f', 3);
+            }
         } else {
             detail += QString("  真实坐标: (转换失败)\n");
         }
@@ -470,6 +516,34 @@ bool Widget::pixelToRealWorld(float pixelX, float pixelY, int srcW, int srcH,
 }
 
 // ============================================================
+//  ResMLP 推理: 真实世界坐标 → 4 路电压值
+// ============================================================
+
+bool Widget::computeVoltages(float worldX, float worldY, float voltages[4])
+{
+    if (!resMLPLoaded_) {
+        return false;
+    }
+
+    // worldX, worldY 单位为 mm, 模型需要米
+    float xMeters = worldX / 1000.0f;
+    float yMeters = worldY / 1000.0f;
+    float zFixed  = 3.6f;  // 固定高度, 与训练数据一致
+
+    // 方式1: 从 (x, y, z) 直接推理
+    std::vector<float> result = resMLP_.predictFromXYZ(xMeters, yMeters, zFixed);
+
+    if (result.size() < 4) {
+        return false;
+    }
+
+    for (int i = 0; i < 4; i++) {
+        voltages[i] = result[i];
+    }
+    return true;
+}
+
+// ============================================================
 //  相机控制
 // ============================================================
 
@@ -580,18 +654,37 @@ void Widget::processCameraFrame()
                 float cy = (first.box[1] + first.box[3]) / 2.0f;
 
                 float worldX, worldY;
+                bool hasCoord = pixelToRealWorld(cx, cy, rgaMat.cols, rgaMat.rows, worldX, worldY);
+
                 QString coordInfo;
-                if (pixelToRealWorld(cx, cy, rgaMat.cols, rgaMat.rows, worldX, worldY)) {
+                if (hasCoord) {
                     coordInfo = QString(" | 真实坐标: (%1, %2) mm")
                                     .arg(worldX, 0, 'f', 1)
                                     .arg(worldY, 0, 'f', 1);
                 }
 
+                // ResMLP 电压计算
+                float voltages[4] = {0};
+                bool hasVoltage = false;
+                if (hasCoord) {
+                    hasVoltage = computeVoltages(worldX, worldY, voltages);
+                }
+
+                QString voltageInfo;
+                if (hasVoltage) {
+                    voltageInfo = QString(" | 电压: %1/%2/%3/%4 V")
+                                      .arg(voltages[0], 0, 'f', 2)
+                                      .arg(voltages[1], 0, 'f', 2)
+                                      .arg(voltages[2], 0, 'f', 2)
+                                      .arg(voltages[3], 0, 'f', 2);
+                }
+
                 ui->detectResultLabel->setText(
-                    QString("%1 %2%3")
+                    QString("%1 %2%3%4")
                         .arg(QString::fromStdString(first.className))
                         .arg(first.prop * 100, 0, 'f', 1)
-                        .arg(coordInfo));
+                        .arg(coordInfo)
+                        .arg(voltageInfo));
 
                 // 在结果文本框中也显示详细信息（第一个目标）
                 QString detail = QString("实时检测结果 — %1\n"
@@ -604,10 +697,20 @@ void Widget::processCameraFrame()
                                     .arg(first.prop * 100, 0, 'f', 1)
                                     .arg(cx, 0, 'f', 1).arg(cy, 0, 'f', 1);
 
-                if (pixelToRealWorld(cx, cy, rgaMat.cols, rgaMat.rows, worldX, worldY)) {
+                if (hasCoord) {
                     detail += QString("真实坐标: (%1, %2) mm\n")
                                   .arg(worldX, 0, 'f', 1)
                                   .arg(worldY, 0, 'f', 1);
+                }
+
+                if (hasVoltage) {
+                    detail += QString("\n移相电压:\n");
+                    detail += QString("  通道1: %1 V\n").arg(voltages[0], 0, 'f', 3);
+                    detail += QString("  通道2: %1 V\n").arg(voltages[1], 0, 'f', 3);
+                    detail += QString("  通道3: %1 V\n").arg(voltages[2], 0, 'f', 3);
+                    detail += QString("  通道4: %1 V\n").arg(voltages[3], 0, 'f', 3);
+                    float avg = (voltages[0] + voltages[1] + voltages[2] + voltages[3]) / 4.0f;
+                    detail += QString("平均电压: %1 V\n").arg(avg, 0, 'f', 3);
                 }
 
                 if (detectionResults.size() > 1) {

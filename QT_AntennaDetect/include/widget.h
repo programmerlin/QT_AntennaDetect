@@ -19,6 +19,9 @@
 #include "../Antenna_Visioner/include/Antenna_Visioner.h"
 #include "../USB_HikCamera/include/HikCamera.h"
 
+// ResMLP 残差多层感知机 (CPU 推理)
+#include "ResMLP.h"
+
 namespace Ui {
 class Widget;
 }
@@ -93,6 +96,9 @@ protected:
     void displayYOLOResults(int srcW, int srcH);
     void drawDetections(cv::Mat& image);
 
+    // ResMLP 推理: 从真实世界坐标计算电压
+    bool computeVoltages(float worldX, float worldY, float voltages[4]);
+
     // 真实世界坐标转换
     cv::Mat homographyMatrix_;           // 透视变换矩阵 (3x3)
     static constexpr int CAM_NATIVE_WIDTH = 2048;
@@ -100,6 +106,10 @@ protected:
     static constexpr int MODEL_INPUT_SIZE = 640;
     bool initCoordinateTransform();
     bool pixelToRealWorld(float pixelX, float pixelY, int srcW, int srcH, float& worldX, float& worldY);
+
+    // ResMLP 残差 MLP 推理
+    resmlp::ResMLP resMLP_;              // 残差 MLP 模型实例
+    bool resMLPLoaded_;                  // 模型是否加载成功
 
     // 图像处理方法
     bool loadImage(const QString& filePath);
