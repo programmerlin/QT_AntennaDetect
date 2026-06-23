@@ -50,7 +50,8 @@ INCLUDEPATH += $$PWD/../Antenna_Visioner/include \
                $$PWD/../3rdparty/jpeg_turbo/include \
                $$PWD/../3rdparty/stb_image \
                $$PWD/../3rdparty/libdrm/include \
-               $$PWD/../ResMLP/include
+               $$PWD/../ResMLP/include \
+               $$PWD/../Serial_Modbus/include
 
 # 源码集成 (注意：确保路径下文件确实存在)
 SOURCES += src/main.cpp \
@@ -65,7 +66,8 @@ SOURCES += src/main.cpp \
            ../3rdparty/utils/image_drawing.c \
            ../3rdparty/allocator/dma_alloc.cpp \
            ../3rdparty/allocator/drm_alloc.cpp \
-           ../ResMLP/src/ResMLP.cpp
+           ../ResMLP/src/ResMLP.cpp \
+           ../Serial_Modbus/src/ModbusComm.cpp
 
 HEADERS += include/widget.h \
            ../Antenna_Visioner/include/Antenna_Visioner.h \

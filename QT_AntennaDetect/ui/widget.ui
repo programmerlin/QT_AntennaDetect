@@ -250,6 +250,44 @@
           </widget>
          </item>
          <item>
+          <widget class="QPushButton" name="loadVideoBtn">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>85</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>36</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>加载AVI视频文件并进行逐帧检测</string>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton {
+               background-color: #16a085;
+               color: white;
+               border: none;
+               border-radius: 4px;
+               font-weight: bold;
+               font-size: 12px;
+             }
+             QPushButton:hover { background-color: #138d75; }
+             QPushButton:pressed { background-color: #117a65; }
+             QPushButton:disabled { background-color: #bdc3c7; }</string>
+           </property>
+           <property name="text">
+            <string>加载视频</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QPushButton" name="saveImageBtn">
            <property name="enabled">
             <bool>false</bool>
@@ -1050,5 +1088,6 @@
   <slot>on_processImageBtn_clicked()</slot>
   <slot>on_yoloDetectBtn_clicked()</slot>
   <slot>on_loadModelBtn_clicked()</slot>
+  <slot>on_loadVideoBtn_clicked()</slot>
  </slots>
 </ui>

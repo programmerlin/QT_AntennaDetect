@@ -1,5 +1,5 @@
 #include "../include/widget.h"
-#include "../ui_widget.h"
+#include "ui_widget.h"
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QPixmap>
@@ -19,7 +19,14 @@ Widget::Widget(QWidget *parent) :
     visioner(nullptr),
     cameraTimer(nullptr),
     isDetecting(false),
-    modelLoaded(false)
+    modelLoaded(false),
+    videoCapture_(nullptr),
+    videoTimer_(nullptr),
+    videoPlaying_(false),
+    videoTotalFrames_(0),
+    videoCurrentFrame_(0),
+    modbusComm_(nullptr),
+    modbusOpened_(false)
 {
     ui->setupUi(this);
 
@@ -32,6 +39,7 @@ Widget::Widget(QWidget *parent) :
     ui->processImageBtn->setEnabled(false);
     ui->yoloDetectBtn->setEnabled(false);
     ui->yoloDetectMiniBtn->setEnabled(false);
+    ui->loadVideoBtn->setEnabled(false);
 
     // --- 连接按钮信号 --- 
     //QObject::connect(sender, &SenderClass::signalName, 
@@ -86,33 +94,76 @@ Widget::Widget(QWidget *parent) :
     cameraTimer->setInterval(100); // ~10fps
     connect(cameraTimer, &QTimer::timeout, this, &Widget::processCameraFrame);
 
+    // 初始化视频定时器（用于视频文件检测）
+    videoTimer_ = new QTimer(this);
+    videoTimer_->setInterval(33); // ~30fps
+    connect(videoTimer_, &QTimer::timeout, this, &Widget::processVideoFrame);
+
     // 初始化真实世界坐标转换（标定数据）
     initCoordinateTransform();
 
     // 初始化 ResMLP 模型（加载权重）
     resMLPLoaded_ = false;
-    QString resMLPWeightPath = QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+    // 优先查找 install 部署目录 (与可执行文件同级)
+    QString resMLPWeightPath = QApplication::applicationDirPath() + "/model/ResMLP.weights";
     if (resMLP_.load(resMLPWeightPath.toStdString())) {
         resMLPLoaded_ = true;
         qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
         ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
     } else {
-        // 也尝试相对于源代码目录的路径
-        resMLPWeightPath = QFileInfo("../ResMLP/model/ResMLP.weights").absoluteFilePath();
+        // 备用路径: 开发时从 build 目录运行 (源码目录下)
+        resMLPWeightPath = QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
         if (resMLP_.load(resMLPWeightPath.toStdString())) {
             resMLPLoaded_ = true;
             qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
             ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
         } else {
             qWarning() << "[ResMLP] 模型加载失败，电压计算功能不可用:"
-                       << QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
+                       << QApplication::applicationDirPath() + "/model/ResMLP.weights";
             // 不阻塞启动，电压计算将在检测时不可用
+        }
+    }
+
+    // 初始化 Modbus 串口通信 (RS232 → 电源)
+    modbusOpened_ = false;
+    // 尝试打开默认串口设备 /dev/ttyUSB0 (USB转RS232线)
+    modbusComm_ = new modbus::ModbusComm("/dev/ttyUSB0");
+    if (modbusComm_->open()) {
+        modbusOpened_ = true;
+        qDebug() << "[Modbus] 串口初始化成功, 设备: /dev/ttyUSB0 @ 9600-8-N-1";
+    } else {
+        // 备用: 尝试板载 UART4 (/dev/ttyS4)
+        modbusComm_->close();
+        delete modbusComm_;
+        modbusComm_ = new modbus::ModbusComm("/dev/ttyS4");
+        if (modbusComm_->open()) {
+            modbusOpened_ = true;
+            qDebug() << "[Modbus] 串口初始化成功, 设备: /dev/ttyS4 @ 9600-8-N-1";
+        } else {
+            qWarning() << "[Modbus] 串口初始化失败，电压输出功能不可用:"
+                       << "/dev/ttyUSB0 和 /dev/ttyS4 均无法打开";
+            delete modbusComm_;
+            modbusComm_ = nullptr;
         }
     }
 }
 
 Widget::~Widget()
 {
+    // 停止视频播放
+    stopVideoPlayback();
+    if (videoTimer_) {
+        delete videoTimer_;
+        videoTimer_ = nullptr;
+    }
+
+    // 关闭 Modbus 串口
+    if (modbusComm_) {
+        modbusComm_->close();
+        delete modbusComm_;
+        modbusComm_ = nullptr;
+    }
+
     // 停止定时器
     if (cameraTimer && cameraTimer->isActive()) {
         cameraTimer->stop();
@@ -178,6 +229,7 @@ void Widget::on_loadModelBtn_clicked()
         modelLoaded = true;
         ui->yoloDetectBtn->setEnabled(true);
         ui->yoloDetectMiniBtn->setEnabled(true);
+        updateButtonsState();
 
         // 更新模型状态指示
         ui->modelStatusLabel->setText("模型已加载");
@@ -540,7 +592,229 @@ bool Widget::computeVoltages(float worldX, float worldY, float voltages[4])
     for (int i = 0; i < 4; i++) {
         voltages[i] = result[i];
     }
+
+    // 通过 Modbus 串口发送电压到下位机电源
+    if (modbusOpened_ && modbusComm_) {
+        modbusComm_->writeAllVoltages(voltages[0], voltages[1],
+                                       voltages[2], voltages[3]);
+    }
+
     return true;
+}
+
+// ============================================================
+//  视频文件检测
+// ============================================================
+
+void Widget::on_loadVideoBtn_clicked()
+{
+    // 必须先加载 YOLO 模型
+    if (!modelLoaded || !visioner) {
+        QMessageBox::warning(this, "提示", "请先加载YOLO模型！");
+        return;
+    }
+
+    // 如果已有视频在播放，先停止
+    if (videoPlaying_) {
+        stopVideoPlayback();
+    }
+
+    // 选择视频文件
+    QString videoPath = QFileDialog::getOpenFileName(
+        this,
+        "选择视频文件",
+        "",
+        "视频文件 (*.avi *.mp4 *.mov *.mkv);;所有文件 (*)"
+    );
+
+    if (videoPath.isEmpty()) {
+        return;
+    }
+
+    // 如果相机正在检测，先停止
+    if (isDetecting) {
+        stopCamera();
+        ui->startBtn->setEnabled(true);
+        ui->stopBtn->setEnabled(false);
+    }
+
+    // 打开视频文件
+    videoCapture_ = new cv::VideoCapture(videoPath.toStdString());
+    if (!videoCapture_->isOpened()) {
+        QMessageBox::warning(this, "视频加载失败",
+            "无法打开视频文件，请检查:\n"
+            "1. 文件格式是否支持\n"
+            "2. 文件路径是否包含中文或特殊字符\n"
+            "3. 视频编码是否为 H.264 或 MJPEG");
+        delete videoCapture_;
+        videoCapture_ = nullptr;
+        return;
+    }
+
+    // 读取视频信息
+    videoTotalFrames_ = (int)videoCapture_->get(cv::CAP_PROP_FRAME_COUNT);
+    double fps = videoCapture_->get(cv::CAP_PROP_FPS);
+    videoTimer_->setInterval(fps > 0 ? (int)(1000.0 / fps) : 33);
+
+    videoCurrentFrame_ = 0;
+    videoPlaying_ = true;
+
+    // 更新按钮状态
+    ui->loadVideoBtn->setEnabled(false);
+    ui->stopBtn->setEnabled(true);
+    ui->loadImageBtn->setEnabled(false);
+    ui->saveImageBtn->setEnabled(false);
+    ui->loadModelBtn->setEnabled(false);
+    ui->loadModelMiniBtn->setEnabled(false);
+    ui->startBtn->setEnabled(false);
+
+    ui->statusLabel->setText(QString("视频已加载: %1 (共%2帧, %.1f fps) - 正在播放...")
+        .arg(QFileInfo(videoPath).fileName())
+        .arg(videoTotalFrames_)
+        .arg(fps));
+
+    // 启动视频定时器
+    videoTimer_->start();
+}
+
+void Widget::processVideoFrame()
+{
+    // 校验状态
+    if (!videoCapture_ || !videoPlaying_ || !modelLoaded || !visioner) {
+        return;
+    }
+
+    // 读取一帧
+    cv::Mat frame;
+    bool readOk = videoCapture_->read(frame);
+
+    if (!readOk || frame.empty()) {
+        // 视频播放完毕
+        videoPlaying_ = false;
+        videoTimer_->stop();
+        ui->statusLabel->setText("视频播放完毕");
+        ui->loadVideoBtn->setEnabled(true);
+        ui->startBtn->setEnabled(true);
+        ui->stopBtn->setEnabled(false);
+        ui->loadImageBtn->setEnabled(true);
+        ui->loadModelBtn->setEnabled(true);
+        ui->loadModelMiniBtn->setEnabled(true);
+        ui->saveImageBtn->setEnabled(true);
+        return;
+    }
+
+    videoCurrentFrame_++;
+
+    // 执行 YOLO 检测（复用单图检测路径）
+    detectionResults.clear();
+    cv::Mat detectImage = frame.clone();
+    bool success = visioner->detect_once(detectImage, detectionResults);
+
+    // 显示图像
+    displayImage(detectImage);
+    processedImage = detectImage.clone();
+    imageLoaded = true;
+
+    // 显示检测结果（含 ResMLP 电压）
+    if (success && !detectionResults.empty()) {
+        const auto& first = detectionResults[0];
+        float cx = (first.box[0] + first.box[2]) / 2.0f;
+        float cy = (first.box[1] + first.box[3]) / 2.0f;
+
+        float worldX, worldY;
+        bool hasCoord = pixelToRealWorld(cx, cy, detectImage.cols, detectImage.rows, worldX, worldY);
+
+        QString coordInfo;
+        if (hasCoord) {
+            coordInfo = QString(" | 真实坐标: (%1, %2) mm")
+                            .arg(worldX, 0, 'f', 1)
+                            .arg(worldY, 0, 'f', 1);
+        }
+
+        // ResMLP 电压计算
+        float voltages[4] = {0};
+        bool hasVoltage = false;
+        if (hasCoord) {
+            hasVoltage = computeVoltages(worldX, worldY, voltages);
+        }
+
+        QString voltageInfo;
+        if (hasVoltage) {
+            voltageInfo = QString(" | 电压: %1/%2/%3/%4 V")
+                              .arg(voltages[0], 0, 'f', 2)
+                              .arg(voltages[1], 0, 'f', 2)
+                              .arg(voltages[2], 0, 'f', 2)
+                              .arg(voltages[3], 0, 'f', 2);
+        }
+
+        ui->detectResultLabel->setText(
+            QString("%1 %2%%3%4")
+                .arg(QString::fromStdString(first.className))
+                .arg(first.prop * 100, 0, 'f', 1)
+                .arg(coordInfo)
+                .arg(voltageInfo));
+
+        // 详细结果文本框
+        QString detail = QString("视频检测结果 — 帧 %1/%2\n"
+                                 "━━━━━━━━━━━━━━━━━━\n\n"
+                                 "目标: %3\n"
+                                 "置信度: %4%\n"
+                                 "图像坐标: (%5, %6)\n")
+                            .arg(videoCurrentFrame_)
+                            .arg(videoTotalFrames_)
+                            .arg(QString::fromStdString(first.className))
+                            .arg(first.prop * 100, 0, 'f', 1)
+                            .arg(cx, 0, 'f', 1)
+                            .arg(cy, 0, 'f', 1);
+
+        if (hasCoord) {
+            detail += QString("真实坐标: (%1, %2) mm\n")
+                          .arg(worldX, 0, 'f', 1)
+                          .arg(worldY, 0, 'f', 1);
+        }
+
+        if (hasVoltage) {
+            detail += QString("\n移相电压:\n");
+            detail += QString("  通道1: %1 V\n").arg(voltages[0], 0, 'f', 3);
+            detail += QString("  通道2: %1 V\n").arg(voltages[1], 0, 'f', 3);
+            detail += QString("  通道3: %1 V\n").arg(voltages[2], 0, 'f', 3);
+            detail += QString("  通道4: %1 V\n").arg(voltages[3], 0, 'f', 3);
+            float avg = (voltages[0] + voltages[1] + voltages[2] + voltages[3]) / 4.0f;
+            detail += QString("平均电压: %1 V\n").arg(avg, 0, 'f', 3);
+        }
+
+        if (detectionResults.size() > 1) {
+            detail += QString("\n... 还有 %1 个目标\n").arg(detectionResults.size() - 1);
+        }
+
+        ui->resultsTextEdit->setText(detail);
+    } else {
+        ui->detectResultLabel->setText("未检测到目标");
+    }
+
+    // 更新状态栏进度
+    QString progress = QString("视频播放中... 帧 %1/%2")
+                           .arg(videoCurrentFrame_)
+                           .arg(videoTotalFrames_);
+    ui->statusLabel->setText(progress);
+}
+
+void Widget::stopVideoPlayback()
+{
+    if (videoTimer_ && videoTimer_->isActive()) {
+        videoTimer_->stop();
+    }
+
+    videoPlaying_ = false;
+
+    if (videoCapture_) {
+        videoCapture_->release();
+        delete videoCapture_;
+        videoCapture_ = nullptr;
+    }
+
+    videoCurrentFrame_ = 0;
+    videoTotalFrames_ = 0;
 }
 
 // ============================================================
@@ -741,22 +1015,42 @@ void Widget::processCameraFrame()
 
 void Widget::on_startBtn_clicked()
 {
+    // 如果视频正在播放，先停止
+    if (videoPlaying_) {
+        stopVideoPlayback();
+    }
+
     startCamera();
 
     ui->startBtn->setEnabled(false);//设置相应按钮状态（可用/禁用）
     ui->stopBtn->setEnabled(true);
     ui->loadImageBtn->setEnabled(false);
+    ui->loadVideoBtn->setEnabled(false);
     ui->loadModelBtn->setEnabled(false);
     ui->loadModelMiniBtn->setEnabled(false);
 }
 
 void Widget::on_stopBtn_clicked()
 {
+    // 如果视频正在播放，停止视频
+    if (videoPlaying_) {
+        stopVideoPlayback();
+        ui->startBtn->setEnabled(true);
+        ui->stopBtn->setEnabled(false);
+        ui->loadImageBtn->setEnabled(true);
+        ui->loadVideoBtn->setEnabled(true);
+        ui->loadModelBtn->setEnabled(true);
+        ui->loadModelMiniBtn->setEnabled(true);
+        ui->statusLabel->setText("视频已停止");
+        return;
+    }
+
     stopCamera();
 
     ui->startBtn->setEnabled(true);
     ui->stopBtn->setEnabled(false);
     ui->loadImageBtn->setEnabled(true);
+    ui->loadVideoBtn->setEnabled(true);
     ui->loadModelBtn->setEnabled(true);
     ui->loadModelMiniBtn->setEnabled(true);
 }
@@ -1047,6 +1341,9 @@ void Widget::updateButtonsState()
         ui->yoloDetectBtn->setEnabled(true);
         ui->yoloDetectMiniBtn->setEnabled(true);
     }
+
+    // 视频加载按钮: 模型已加载且视频未在播放时启用
+    ui->loadVideoBtn->setEnabled(modelLoaded && !videoPlaying_);
 }
 
 void Widget::showProcessingTime()

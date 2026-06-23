@@ -22,6 +22,9 @@
 // ResMLP 残差多层感知机 (CPU 推理)
 #include "ResMLP.h"
 
+// Modbus 串口通信 (RS232 四路电压输出)
+#include "ModbusComm.h"
+
 namespace Ui {
 class Widget;
 }
@@ -45,6 +48,10 @@ private slots:
     // YOLO检测相关槽函数
     void on_yoloDetectBtn_clicked();
     void on_loadModelBtn_clicked();
+
+    // 视频文件检测槽函数
+    void on_loadVideoBtn_clicked();
+    void processVideoFrame();
 
     // 相机处理槽函数
     void processCameraFrame();
@@ -87,6 +94,13 @@ protected:
     QString modelPath;             // 模型文件路径
     QString labelPath;             // 标签文件路径
 
+    // 视频文件检测相关成员
+    cv::VideoCapture* videoCapture_;  // OpenCV 视频捕获对象
+    QTimer* videoTimer_;              // 视频帧处理定时器
+    bool videoPlaying_;               // 视频是否正在播放
+    int videoTotalFrames_;            // 视频总帧数
+    int videoCurrentFrame_;           // 当前播放帧号
+
     // 初始化方法
     void initComponents();
     bool loadYOLOModel();
@@ -111,6 +125,10 @@ protected:
     resmlp::ResMLP resMLP_;              // 残差 MLP 模型实例
     bool resMLPLoaded_;                  // 模型是否加载成功
 
+    // Modbus 串口通信 (RS232 → 电源)
+    modbus::ModbusComm* modbusComm_;     // Modbus 通信实例
+    bool modbusOpened_;                  // Modbus 串口是否已打开
+
     // 图像处理方法
     bool loadImage(const QString& filePath);
     void displayImage(const cv::Mat& image);
@@ -120,6 +138,9 @@ protected:
     // 相机方法
     void startCamera();
     void stopCamera();
+
+    // 视频方法
+    void stopVideoPlayback();
 
     // UI 更新方法
     void updateButtonsState();
