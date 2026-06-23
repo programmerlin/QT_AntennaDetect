@@ -104,23 +104,14 @@ Widget::Widget(QWidget *parent) :
 
     // 初始化 ResMLP 模型（加载权重）
     resMLPLoaded_ = false;
-<<<<<<< HEAD
-    // 优先查找 install 部署目录 (与可执行文件同级)
-=======
->>>>>>> d2b40ebcacc566455ac128d2ae4abc7e4094b185
     QString resMLPWeightPath = QApplication::applicationDirPath() + "/model/ResMLP.weights";
     if (resMLP_.load(resMLPWeightPath.toStdString())) {
         resMLPLoaded_ = true;
         qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
         ui->statusLabel->setText("就绪 - 模型已加载, ResMLP 就绪");
     } else {
-<<<<<<< HEAD
-        // 备用路径: 开发时从 build 目录运行 (源码目录下)
+        // 备用路径: 源码目录下的模型文件
         resMLPWeightPath = QApplication::applicationDirPath() + "/../ResMLP/model/ResMLP.weights";
-=======
-        // 也尝试相对于源代码目录的路径
-        resMLPWeightPath = QFileInfo("model/ResMLP.weights").absoluteFilePath();
->>>>>>> d2b40ebcacc566455ac128d2ae4abc7e4094b185
         if (resMLP_.load(resMLPWeightPath.toStdString())) {
             resMLPLoaded_ = true;
             qDebug() << "[ResMLP] 模型加载成功:" << resMLPWeightPath;
@@ -133,26 +124,31 @@ Widget::Widget(QWidget *parent) :
     }
 
     // 初始化 Modbus 串口通信 (RS232 → 电源)
+    // 依次尝试: USB转串口线 → CDC ACM → 板载UART
     modbusOpened_ = false;
-    // 尝试打开默认串口设备 /dev/ttyUSB0 (USB转RS232线)
-    modbusComm_ = new modbus::ModbusComm("/dev/ttyUSB0");
-    if (modbusComm_->open()) {
-        modbusOpened_ = true;
-        qDebug() << "[Modbus] 串口初始化成功, 设备: /dev/ttyUSB0 @ 9600-8-N-1";
-    } else {
-        // 备用: 尝试板载 UART4 (/dev/ttyS4)
-        modbusComm_->close();
-        delete modbusComm_;
-        modbusComm_ = new modbus::ModbusComm("/dev/ttyS4");
+    const char* devicePaths[] = {
+        "/dev/ttyUSB0",   // 通用 USB转RS232 (PL2303/CH341/FTDI 等)
+        "/dev/ttyACM0",   // CDC ACM 类 USB转串口 (CH343 等)
+        "/dev/ttyS4",     // 板载 UART4
+    };
+    const char* deviceUsed = nullptr;
+
+    for (const char* dev : devicePaths) {
+        modbusComm_ = new modbus::ModbusComm(dev);
         if (modbusComm_->open()) {
             modbusOpened_ = true;
-            qDebug() << "[Modbus] 串口初始化成功, 设备: /dev/ttyS4 @ 9600-8-N-1";
-        } else {
-            qWarning() << "[Modbus] 串口初始化失败，电压输出功能不可用:"
-                       << "/dev/ttyUSB0 和 /dev/ttyS4 均无法打开";
-            delete modbusComm_;
-            modbusComm_ = nullptr;
+            deviceUsed = dev;
+            qDebug() << "[Modbus] 串口初始化成功, 设备:" << dev << "@ 9600-8-N-1";
+            break;
         }
+        modbusComm_->close();
+        delete modbusComm_;
+        modbusComm_ = nullptr;
+    }
+
+    if (!modbusOpened_) {
+        qWarning() << "[Modbus] 串口初始化失败，电压输出功能不可用:"
+                   << "/dev/ttyUSB0, /dev/ttyACM0, /dev/ttyS4 均无法打开";
     }
 }
 

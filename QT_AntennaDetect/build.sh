@@ -57,6 +57,10 @@ do_clean() {
 do_build() {
     check_qmake
 
+    # 0. 清理旧的编译中间文件 (避免 Makefile/obj 与新 .pro 不一致)
+    print_info "清理旧的编译中间文件..."
+    rm -rf "${BUILD_DIR}"
+
     # 1. 创建目录
     print_info "创建输出目录..."
     mkdir -p "${BUILD_DIR}"

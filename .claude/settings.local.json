@@ -11,7 +11,8 @@
       "Bash(/tmp/test_resmlp.exe:*)",
       "Bash(g++ -std=c++11 -O2 -I include -o /tmp/test_resmlp /tmp/test_resmlp.cpp src/ResMLP.cpp -lm)",
       "Bash(g++ -std=c++11 -O2 -Iinclude -o test.exe src/test.cpp src/ResMLP.cpp -lm)",
-      "Bash(./test.exe)"
+      "Bash(./test.exe)",
+      "Bash(git log *)"
     ]
   }
 }
